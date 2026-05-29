@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { UserSession, Task, Priority } from './types';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { UserSession, Task, WebSocketMessage, Priority } from './types';
 import LoginScreen from './components/LoginScreen';
 import TeamPlanner from './components/TeamPlanner';
 import PlannerCanvas from './components/PlannerCanvas';
@@ -8,11 +8,16 @@ import NieuweTaakModal from './components/NieuweTaakModal';
 import { teamMembers } from './constants';
 import { supabase } from './supabase';
 import { 
+  FolderLock, 
+  Sparkles, 
+  Network, 
   LogOut, 
-  CalendarDays, 
-  BarChart3, 
-  Archive, 
-  Bell 
+  HelpCircle,
+  CalendarDays,
+  BarChart3,
+  Archive,
+  RefreshCw,
+  Bell
 } from 'lucide-react';
 
 // Conversion helpers mapping local structure to user's Supabase tasks table format
@@ -224,7 +229,7 @@ export default function App() {
         reconnectTimeout = window.setTimeout(connectWS, 4000);
       };
 
-      socket.onerror = () => {
+      socket.onerror = (err) => {
         socket.close();
       };
     };
@@ -258,6 +263,7 @@ export default function App() {
     }
   };
 
+  // Add a task triggered by toolbar or row clicks
   const handleAddTaskTrigger = (memberId: string, initialHour?: string) => {
     setEditingTask(null);
     setDefaultTaskMemberId(memberId || teamMembers[0].id);
@@ -265,6 +271,7 @@ export default function App() {
     setIsModalOpen(true);
   };
 
+  // Edit a task triggered by clicked task block
   const handleEditTaskTrigger = (task: Task) => {
     setEditingTask(task);
     setIsModalOpen(true);
@@ -316,6 +323,7 @@ export default function App() {
       // --- Create Flow ---
       const newId = Math.random().toString(36).substring(2, 9);
       
+      // Determine correct values
       const dateVal = taskPayload.date || selectedDate;
       const parsedWeek = taskPayload.week || 22;
 
@@ -344,6 +352,7 @@ export default function App() {
         if (error) {
           console.error('Supabase insert failed:', error);
           triggerNotification(`🛑 Fout bij invoegen: ${error.message}`);
+          // Revert optimistic insert
           setTasks(prev => prev.filter(t => t.id !== newId));
         }
       } catch (err) {
@@ -369,6 +378,7 @@ export default function App() {
       if (error) {
         console.error('Supabase delete failed:', error);
         triggerNotification(`🛑 Fout bij verwijderen: ${error.message}`);
+        // Revert optimistic delete
         setTasks(originalTasks);
       }
     } catch (err) {
@@ -376,6 +386,7 @@ export default function App() {
     }
   };
 
+  // If there's no active session, render the gorgeous Login screen
   if (!session) {
     return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
   }
@@ -399,6 +410,7 @@ export default function App() {
       <header id="main-header" className="h-20 bg-white border-b border-slate-200 px-4 sm:px-6 lg:px-8 flex items-center shadow-sm shrink-0 z-40">
         <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-4">
           
+          {/* Logo & title info with team indicator */}
           <div id="branding" className="flex items-center gap-4 text-center sm:text-left">
             <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black shadow-md shadow-blue-500/15 antialiased">
               C
@@ -412,6 +424,7 @@ export default function App() {
                   Collaborative Task Canvas
                 </h1>
                 
+                {/* WS Status Indicator inside badge layout */}
                 <div id="ws-badge" className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider font-mono ${
                   socketStatus === 'connected' 
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
@@ -420,9 +433,9 @@ export default function App() {
                       : 'bg-rose-50 text-rose-700 border border-rose-200'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${
-                    socketStatus === 'connected' ? 'bg-emerald-505' : 'bg-rose-505'
+                    socketStatus === 'connected' ? 'bg-emerald-500' : socketStatus === 'connecting' ? 'bg-amber-500' : 'bg-rose-500'
                   }`} />
-                  {socketStatus === 'connected' ? 'synced' : 'offline'}
+                  {socketStatus === 'connected' ? 'synced' : socketStatus === 'connecting' ? 'connecting' : 'offline'}
                 </div>
               </div>
               <p className="text-[10px] text-slate-400 font-bold font-sans tracking-widest mt-0.5 uppercase">
@@ -431,8 +444,10 @@ export default function App() {
             </div>
           </div>
 
+          {/* Interactive Navigation tabs for switching view + User card */}
           <div id="tabs-and-profile" className="flex flex-wrap items-center gap-4">
             
+            {/* View Switching Tab Pills */}
             <div id="tab-controls" className="bg-slate-100 p-1 rounded-xl border border-slate-200 flex items-center">
               <button
                 id="tab-agenda"
@@ -474,6 +489,7 @@ export default function App() {
               </button>
             </div>
 
+            {/* User Session Profile display & logout option */}
             <div id="active-profile-card" className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1.5 pr-3 h-11">
               <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-black text-xs flex items-center justify-center shadow-sm">
                 {session?.initials}
@@ -498,6 +514,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* Main Dynamic View Content Container */}
       <main id="main-view" className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === 'agenda' ? (
           <TeamPlanner
@@ -517,17 +534,19 @@ export default function App() {
         )}
       </main>
 
-      <footer id="main-footer" className="h-10 bg-slate-800 text-white/50 px-6 flex items-center justify-between text-[10px] uppercase tracking-widest shrink-0 font-medium font-mono">
+      {/* Gorgeous Footer block */}
+      <footer id="main-footer" className="h-10 bg-slate-800 text-white/50 px-6 flex items-center justify-between text-[10px] uppercase tracking-widest shrink-0 font-medium font-mono font-sans">
         <div className="flex gap-4">
           <span>Real-time Sync Active</span>
           <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            Supabase Postgres Listener
+            <span className={`w-1.5 h-1.5 rounded-full ${socketStatus === 'connected' ? 'bg-emerald-400' : 'bg-blue-400'}`} />
+            {socketStatus === 'connected' ? 'WebSocket Presence Connected' : 'Supabase Cloud Sync'}
           </span>
         </div>
         <div>Canvas Editor v2.4.0</div>
       </footer>
 
+      {/* Task Creation & Edit Form Pop up overlay */}
       {isModalOpen && (
         <NieuweTaakModal
           onClose={() => setIsModalOpen(false)}
