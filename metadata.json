@@ -1,0 +1,6 @@
+{
+  "name": "Planner Canvas",
+  "description": "A real-time collaborative team agenda planner and analytics dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
