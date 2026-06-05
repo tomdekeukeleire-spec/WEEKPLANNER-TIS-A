@@ -26,7 +26,7 @@ function getISOWeek(dateStr: string): number {
   return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 }
 
-// Genereer tijden van 08:00 tot 16:00 per 15 minuten
+// Genereer tijden van 08:00 tot 16:00 per 15 minutes
 const ALLOWED_TIMES = [
   '08:00', '08:15', '08:30', '08:45',
   '09:00', '09:15', '09:30', '09:45',
@@ -50,7 +50,6 @@ export default function NieuweTaakModal({
   isSuperuser,
   currentUserId,
 }: NieuweTaakModalProps) {
-  // Lock het teamlid: als normale user ben je het altijd zelf, als superuser gebruik je de gekozen rij
   const [teamMemberId, setTeamMemberId] = useState<string>(
     editingTask?.teamMemberId || (isSuperuser ? (defaultMemberId || (teamMembers.length > 0 ? teamMembers[0].id : '')) : currentUserId)
   );
@@ -118,7 +117,8 @@ export default function NieuweTaakModal({
       }
     }
 
-    if (!description.trim()) {
+    // Omschrijving controle: Alleen verplicht als het GEEN verlof is
+    if (subject !== 'Verlof' && !description.trim()) {
       alert('Vul a.u.b. een omschrijving in.');
       return;
     }
@@ -133,7 +133,8 @@ export default function NieuweTaakModal({
       week,
       teamMemberId,
       subject,
-      description: description.trim(),
+      // Als omschrijving leeg is bij verlof, vul automatisch 'Verlof' in
+      description: description.trim() || (subject === 'Verlof' ? 'Verlof' : ''),
       startTime,
       endTime,
       priority,
@@ -204,7 +205,7 @@ export default function NieuweTaakModal({
             </div>
           </div>
 
-          {/* Teamlid - UITGESCHAKELD VOOR NORMALE GEBRUIKERS */}
+          {/* Teamlid */}
           <div id="field-team-member" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">
               TOEWIJZEN AAN {!isSuperuser && '(VERGRENDELD)'}
@@ -243,16 +244,16 @@ export default function NieuweTaakModal({
             </select>
           </div>
 
-          {/* Omschrijving */}
+          {/* Omschrijving - CONDITIONEEL VERPLICHT */}
           <div id="field-description" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">
-              OMSCHRIJVING
+              OMSCHRIJVING {subject === 'Verlof' && '(OPTIONEEL)'}
             </label>
             <input
               id="input-task-description"
               type="text"
-              required
-              placeholder="Bijv. Project Meeting"
+              required={subject !== 'Verlof'}
+              placeholder={subject === 'Verlof' ? 'Optioneel (bijv. Doktersbezoek)' : 'Bijv. Project Meeting'}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full border border-slate-250 bg-slate-50 rounded-lg px-4 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 placeholder-slate-400 transition-shadow"
