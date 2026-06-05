@@ -52,6 +52,7 @@ function taskToDb(task: Partial<Task>): any {
 
 export default function App() {
   const [session, setSession] = useState<UserSession | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null); // State voor blokkering melding
   const [tasks, setTasks] = useState<Task[]>([]);
   const [teamMembersState, setTeamMembersState] = useState<TeamMember[]>(initialTeamMembers);
   const [activeTab, setActiveTab] = useState<'dag' | 'week' | 'analytics' | 'archive' | 'settings'>('dag');
@@ -99,7 +100,7 @@ export default function App() {
     fetchTeamMembers();
   }, []);
 
-  // Sync Google Auth Browser Session + Auto Login / Superuser Router
+  // Sync Google Auth Browser Session + Harde Poortwachter controle
   useEffect(() => {
     const syncUserSession = (sbSession: any) => {
       if (!sbSession?.user) {
@@ -111,34 +112,32 @@ export default function App() {
       const email = user.email || '';
       const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Teamlid';
 
-      // 1. Controleer of de inlogger Tom of Bart is (Altijd Superuser)
+      // 1. VIP Ingang: Tom of Bart (Altijd direct Superuser)
       const isTom = email.toLowerCase().includes('tom.de.keukeleire') || fullName.toLowerCase().includes('tom de keukeleire');
       const isBart = email.toLowerCase().includes('bart.vanneste') || fullName.toLowerCase().includes('bart vanneste');
 
       if (isTom) {
         setSession({ memberId: 'tom-id', name: 'Tom De Keukeleire', initials: 'TDK', role: 'Superuser' });
+        setAuthError(null);
         return;
       }
       if (isBart) {
         setSession({ memberId: 'bart-id', name: 'Bart Vanneste', initials: 'BVE', role: 'Superuser' });
+        setAuthError(null);
         return;
       }
 
-      // 2. SLIMME GEBRUIKERSCHECK: Match DIRECT op het ingevoerde e-mailadres uit de instellingen
+      // 2. WATERDICHTE GRONDCHECK: Match exact op ingevoerd mailadres uit de database
       const matched = teamMembersState.find(m => (m as any).email?.toLowerCase() === email.toLowerCase());
       
       if (matched) {
         setSession({ memberId: matched.id, name: matched.name, initials: matched.initials, role: 'User' });
+        setAuthError(null);
       } else {
-        // Fallback als de mail (nog) niet in de lijst staat, match op naam als noodgreep
-        const nameMatched = teamMembersState.find(m => fullName.toLowerCase().includes(m.name.toLowerCase()));
-        if (nameMatched) {
-          setSession({ memberId: nameMatched.id, name: nameMatched.name, initials: nameMatched.initials, role: 'User' });
-        } else {
-          // Onbekende gebruiker
-          const initials = fullName.split(' ').map((n: any) => n[0]).join('').toUpperCase().substring(0, 3);
-          setSession({ memberId: 'gen-' + user.id.substring(0, 4), name: fullName, initials, role: 'User' });
-        }
+        // GEEN MATCH GEVONDEN -> KRIJGT ABSOLUUT GEEN TOEGANG. DIRECT UITLOGGEN EN BLOKKEREN.
+        supabase.auth.signOut();
+        setSession(null);
+        setAuthError(`Toegang geweigerd. Uw TVH-account (${email}) is niet geautoriseerd voor deze weekplanner. Neem contact op met Tom of Bart.`);
       }
     };
 
@@ -243,6 +242,27 @@ export default function App() {
     }
   };
 
+  // EERSTE SCHERMCHECK: HARD BLOKKERINGSSCHERM BIJ RECHTEN-PROBLEEM
+  if (authError) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans">
+        <div className="sm:mx-auto w-full max-w-md">
+          <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200 text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4 font-bold text-xl">⚠️</div>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Geen Toegang</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6">{authError}</p>
+            <button 
+              onClick={() => setAuthError(null)} 
+              className="text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 px-4 py-2 rounded-lg transition-colors"
+            >
+              Terug naar login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!session) return <LoginScreen />;
 
   return (
@@ -269,7 +289,6 @@ export default function App() {
             <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'analytics' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><BarChart3 className="w-4 h-4" /><span>Analytics</span></button>
             <button onClick={() => setActiveTab('archive')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'archive' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Archive className="w-4 h-4" /><span>Archief</span></button>
             
-            {/* HARD SECURITY CHECK 1: KNOP ALLEEN ZICHTBAAR VOOR SUPERUSERS */}
             {session?.role === 'Superuser' && (
               <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'settings' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Settings className="w-4 h-4" /><span>Instellingen</span></button>
             )}
@@ -296,10 +315,8 @@ export default function App() {
         ) : activeTab === 'archive' ? (
           <ArchiveScreen tasks={tasks} teamMembers={teamMembersState} />
         ) : activeTab === 'settings' && session?.role === 'Superuser' ? (
-          /* HARD SECURITY CHECK 2: INHOUD ALLEEN INLADEN ALS ROL IS SUPERUSER */
           <TeamSettingsScreen teamMembers={teamMembersState} tasks={tasks} onTriggerNotification={triggerNotification} />
         ) : (
-          /* FALLBACK GEWEIGERD SCHERM */
           <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center max-w-md mx-auto my-12 shadow-sm">
             <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4 font-bold text-xl">⚠️</div>
             <h3 className="text-lg font-bold text-slate-800 mb-1">Toegang Geweigerd</h3>
