@@ -463,4 +463,70 @@ export default function ArchiveScreen({ tasks, teamMembers, onEditTask }: Archiv
                       {/* Date */}
                       <td className="py-2.5 px-4 font-mono font-bold text-slate-500 border-r border-slate-50">
                         <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5
+                          <Calendar className="w-3.5 h-3.5 text-slate-350 shrink-0" />
+                          <span>{task.date}</span>
+                        </div>
+                      </td>
+
+                      {/* Week */}
+                      <td className="py-2.5 px-4 font-mono text-slate-450 border-r border-slate-50">
+                        Wk {task.week}
+                      </td>
+
+                      {/* Assigned to */}
+                      <td className="py-2.5 px-4 border-r border-slate-50">
+                        {member ? (
+                          <div className="flex items-center gap-2">
+                            <span className={`w-5 h-5 rounded-md text-[9px] font-black text-white flex items-center justify-center shrink-0 ${member.color.split(' ')[0]}`}>
+                              {member.initials}
+                            </span>
+                            <span className="truncate font-semibold text-slate-800">{member.name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">Onbekend</span>
+                        )}
+                      </td>
+
+                      {/* Subject */}
+                      <td className="py-2.5 px-4 border-r border-slate-50">
+                        <span className={`inline-block px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider leading-none ${subjectBadgeClass}`}>
+                          {subject}
+                        </span>
+                      </td>
+
+                      {/* Description */}
+                      <td className="py-2.5 px-4 border-r border-slate-50 font-medium text-slate-800 max-w-[280px] truncate" title={task.description}>
+                        {task.description}
+                      </td>
+
+                      {/* Start Time */}
+                      <td className="py-2.5 px-4 font-mono text-slate-500 border-r border-slate-50">
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-slate-350" />
+                          <span>{task.startTime}</span>
+                        </div>
+                      </td>
+
+                      {/* End Time */}
+                      <td className="py-2.5 px-4 font-mono text-slate-500 border-r border-slate-50">
+                        {task.endTime}
+                      </td>
+
+                      {/* Priority */}
+                      <td className="py-2.5 px-4 font-semibold">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wide leading-none ${priorityBadgeClass}`}>
+                          {task.priority === Priority.CRITICAL ? 'Urgent' : task.priority.toLowerCase()}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  );
+}
