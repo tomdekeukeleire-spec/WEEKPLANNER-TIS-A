@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { teamMembers, PRIORITY_COLORS } from '../constants';
-import { Priority, Task } from '../types';
+import { PRIORITY_COLORS } from '../constants';
+import { Priority, Task, TeamMember } from '../types';
 import { X, Calendar, Clock, AlertTriangle, Check, Trash2 } from 'lucide-react';
 
 interface NieuweTaakModalProps {
@@ -9,6 +9,7 @@ interface NieuweTaakModalProps {
   onDelete?: (taskId: string) => void;
   editingTask?: Task | null;
   defaultDate?: string; // YYYY-MM-DD
+  teamMembers: TeamMember[];
 }
 
 // ISO Week helper
@@ -28,11 +29,14 @@ export default function NieuweTaakModal({
   onDelete,
   editingTask,
   defaultDate,
+  teamMembers,
 }: NieuweTaakModalProps) {
   // Set default form values
   const [date, setDate] = useState<string>(defaultDate || '2026-05-26');
   const [week, setWeek] = useState<number>(22);
-  const [teamMemberId, setTeamMemberId] = useState<string>('8'); // Default to Bart De Bruyn
+  const [teamMemberId, setTeamMemberId] = useState<string>(
+    editingTask?.teamMemberId || (teamMembers.length > 0 ? teamMembers[0].id : '')
+  );
   const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Training' | 'Meeting'>('Todo');
   const [description, setDescription] = useState<string>('');
   const [startTime, setStartTime] = useState<string>('09:00');
