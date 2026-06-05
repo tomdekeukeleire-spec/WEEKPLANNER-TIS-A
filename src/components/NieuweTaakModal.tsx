@@ -26,7 +26,6 @@ function getISOWeek(dateStr: string): number {
   return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 }
 
-// Genereer tijden van 08:00 tot 16:00 per 15 minutes
 const ALLOWED_TIMES = [
   '08:00', '08:15', '08:30', '08:45',
   '09:00', '09:15', '09:30', '09:45',
@@ -61,6 +60,7 @@ export default function NieuweTaakModal({
   const [startTime, setStartTime] = useState<string>('08:00');
   const [endTime, setEndTime] = useState<string>('09:00');
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
+  const [repeatWeekly, setRepeatWeekly] = useState<boolean>(false); // State voor herhaling
 
   // Auto-calculate week based on date
   useEffect(() => {
@@ -117,7 +117,6 @@ export default function NieuweTaakModal({
       }
     }
 
-    // Omschrijving controle: Alleen verplicht als het GEEN verlof is
     if (subject !== 'Verlof' && !description.trim()) {
       alert('Vul a.u.b. een omschrijving in.');
       return;
@@ -128,16 +127,16 @@ export default function NieuweTaakModal({
       return;
     }
 
-    const payload: Partial<Task> = {
+    const payload: any = {
       date,
       week,
       teamMemberId,
       subject,
-      // Als omschrijving leeg is bij verlof, vul automatisch 'Verlof' in
       description: description.trim() || (subject === 'Verlof' ? 'Verlof' : ''),
       startTime,
       endTime,
       priority,
+      repeatWeekly: !editingTask ? repeatWeekly : false // Stuur herhaling mee
     };
 
     if (editingTask) {
@@ -244,7 +243,7 @@ export default function NieuweTaakModal({
             </select>
           </div>
 
-          {/* Omschrijving - CONDITIONEEL VERPLICHT */}
+          {/* Omschrijving */}
           <div id="field-description" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">
               OMSCHRIJVING {subject === 'Verlof' && '(OPTIONEEL)'}
@@ -324,6 +323,22 @@ export default function NieuweTaakModal({
               )}
             </select>
           </div>
+
+          {/* NIEUW: SELECTIEVINKJE VOOR WEKELIJKSE HERHALING (Alleen zichtbaar bij nieuwe taken) */}
+          {!editingTask && (
+            <div className="flex items-center gap-2.5 bg-blue-50/50 border border-blue-100 rounded-xl p-3 select-none">
+              <input
+                id="checkbox-repeat-weekly"
+                type="checkbox"
+                checked={repeatWeekly}
+                onChange={(e) => setRepeatWeekly(e.target.checked)}
+                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+              />
+              <label htmlFor="checkbox-repeat-weekly" className="text-xs font-bold text-blue-900 cursor-pointer uppercase tracking-wide">
+                🔄 Wekelijks herhalen tot einde jaar
+              </label>
+            </div>
+          )}
 
           {/* Submit Actions Area */}
           <div id="modal-actions" className="pt-5 mt-4 flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 -mx-6 -mb-6 p-6">
