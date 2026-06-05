@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { UserSession, Task, Priority, TeamMember } from './types';
 import LoginScreen from './components/LoginScreen';
 import TeamPlanner from './components/TeamPlanner';
+import WeekOverview from './components/WeekOverview';
 import PlannerCanvas from './components/PlannerCanvas';
 import ArchiveScreen from './components/ArchiveScreen';
 import TeamSettingsScreen from './components/TeamSettingsScreen';
@@ -11,6 +12,7 @@ import { supabase } from './supabase';
 import { 
   LogOut, 
   CalendarDays, 
+  CalendarRange,
   BarChart3, 
   Archive, 
   Settings 
@@ -52,7 +54,7 @@ export default function App() {
   const [session, setSession] = useState<UserSession | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [teamMembersState, setTeamMembersState] = useState<TeamMember[]>(initialTeamMembers);
-  const [activeTab, setActiveTab] = useState<'agenda' | 'analytics' | 'archive' | 'settings'>('agenda');
+  const [activeTab, setActiveTab] = useState<'dag' | 'week' | 'analytics' | 'archive' | 'settings'>('dag');
 
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const d = new Date();
@@ -66,7 +68,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [defaultTaskMemberId, setDefaultTaskMemberId] = useState<string>('');
-  const [defaultTaskTime, setDefaultTaskTime] = useState<string>('09:00');
+  const [defaultTaskTime, setDefaultTaskTime] = useState<string>('08:00');
   const [notification, setNotification] = useState<string | null>(null);
   const notificationTimeoutRef = useRef<number | null>(null);
 
@@ -109,7 +111,6 @@ export default function App() {
       const email = user.email || '';
       const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Teamlid';
 
-      // INTERNE CONTROLE: Superusers (Tom & Bart) definiëren op basis van Google-profiel
       const isTom = email.toLowerCase().includes('tom.de.keukeleire') || fullName.toLowerCase().includes('tom de keukeleire');
       const isBart = email.toLowerCase().includes('bart.vanneste') || fullName.toLowerCase().includes('bart vanneste');
 
@@ -122,12 +123,10 @@ export default function App() {
         return;
       }
 
-      // Reguliere gebruikers automatisch matchen met de database op basis van naam
       const matched = teamMembersState.find(m => fullName.toLowerCase().includes(m.name.toLowerCase()));
       if (matched) {
         setSession({ memberId: matched.id, name: matched.name, initials: matched.initials, role: 'User' });
       } else {
-        // Fallback voor onbekende profielen
         const initials = fullName.split(' ').map((n: any) => n[0]).join('').toUpperCase().substring(0, 3);
         setSession({ memberId: 'gen-' + user.id.substring(0, 4), name: fullName, initials, role: 'User' });
       }
@@ -177,7 +176,7 @@ export default function App() {
     setEditingTask(null);
     const targetId = memberId || (session?.role === 'Superuser' ? teamMembersState[0]?.id : session?.memberId) || '';
     setDefaultTaskMemberId(targetId);
-    setDefaultTaskTime(initialHour || '09:00');
+    setDefaultTaskTime(initialHour || '08:00');
     setIsModalOpen(true);
   };
 
@@ -255,7 +254,12 @@ export default function App() {
 
         <div className="flex items-center gap-4">
           <div className="bg-slate-100 p-1 rounded-xl border border-slate-200 flex items-center">
-            <button onClick={() => setActiveTab('agenda')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'agenda' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><CalendarDays className="w-4 h-4" /><span>Overzicht</span></button>
+            {/* HERNOEMD NAAR DAGOVERZICHT */}
+            <button onClick={() => setActiveTab('dag')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'dag' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><CalendarDays className="w-4 h-4" /><span>Dagoverzicht</span></button>
+            
+            {/* NIEUWE KNOP: WEEKOVERZICHT */}
+            <button onClick={() => setActiveTab('week')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><CalendarRange className="w-4 h-4" /><span>Weekoverzicht</span></button>
+            
             <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'analytics' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><BarChart3 className="w-4 h-4" /><span>Analytics</span></button>
             <button onClick={() => setActiveTab('archive')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'archive' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Archive className="w-4 h-4" /><span>Archief</span></button>
             <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'settings' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Settings className="w-4 h-4" /><span>Instellingen</span></button>
@@ -273,8 +277,10 @@ export default function App() {
       </header>
 
       <main className="flex-1 w-full px-6 py-6">
-        {activeTab === 'agenda' ? (
+        {activeTab === 'dag' ? (
           <TeamPlanner tasks={tasks} onAddTask={handleAddTaskTrigger} onEditTask={handleEditTaskTrigger} selectedDate={selectedDate} setSelectedDate={setSelectedDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} activeUsers={[]} teamMembers={teamMembersState} />
+        ) : activeTab === 'week' ? (
+          <WeekOverview tasks={tasks} teamMembers={teamMembersState} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onEditTask={handleEditTaskTrigger} />
         ) : activeTab === 'analytics' ? (
           <PlannerCanvas tasks={tasks} teamMembers={teamMembersState} />
         ) : activeTab === 'archive' ? (
