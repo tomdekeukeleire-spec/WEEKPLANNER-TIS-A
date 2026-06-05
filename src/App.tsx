@@ -285,7 +285,17 @@ export default function App() {
       </main>
 
       {isModalOpen && (
-        <NieuweTaakModal onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} onDelete={handleDeleteTask} editingTask={editingTask} defaultDate={selectedDate} teamMembers={teamMembersState} />
+        <NieuweTaakModal 
+          onClose={() => setIsModalOpen(false)} 
+          onSave={handleSaveTask} 
+          onDelete={handleDeleteTask} 
+          editingTask={editingTask} 
+          defaultDate={selectedDate} 
+          defaultMemberId={defaultTaskMemberId}
+          teamMembers={teamMembersState} 
+          isSuperuser={session?.role === 'Superuser'}
+          currentUserId={session?.memberId || ''}
+        />
       )}
     </div>
   );
