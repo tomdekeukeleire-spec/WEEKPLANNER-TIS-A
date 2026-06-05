@@ -9,7 +9,6 @@ import {
   Search,
   Settings,
   X,
-  Sliders,
   Calendar,
   BarChart2,
   PieChart,
@@ -18,7 +17,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Briefcase,
-  Mail
+  Mail,
+  Filter
 } from 'lucide-react';
 
 interface PlannerCanvasProps {
@@ -35,6 +35,11 @@ interface WidgetConfig {
   filterPriority: string;
 }
 
+const MONTH_NAMES = [
+  'Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni',
+  'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'
+];
+
 export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps) {
   // --- 1. Global Filter States ---
   const [dashSearch, setDashSearch] = useState<string>('');
@@ -43,10 +48,28 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
   const [globalSubjectFilter, setGlobalSubjectFilter] = useState<string>('all');
   const [globalPriorityFilter, setGlobalPriorityFilter] = useState<string>('all');
   
+  // NIEUW: Jaar- en Maandfilters om data over meerdere jaren te scheiden
+  const [yearFilter, setYearFilter] = useState<string>('2026'); // Standaard op huidige opstartjaar
+  const [monthFilter, setMonthFilter] = useState<string>('all');
+  
   // Timeframe Scale and Specific Daily Date Context
   const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   
-  // Find standard available dates in task history to allow meaningful Daily filters
+  // Haal dynamisch alle unieke jaren op die in de database voorkomen
+  const uniqueYears = useMemo(() => {
+    const yearsSet = new Set<string>();
+    tasks.forEach(t => {
+      if (t.date) {
+        const y = t.date.split('-')[0];
+        if (y) yearsSet.add(y);
+      }
+    });
+    // Zorg dat in ieder geval het huidige jaar erin staat als fallback
+    if (yearsSet.size === 0) yearsSet.add('2026');
+    return Array.from(yearsSet).sort();
+  }, [tasks]);
+
+  // Vind beschikbare datums in task history voor Daily filters
   const uniqueDates = useMemo(() => {
     const datesSet = new Set<string>();
     tasks.forEach(t => { if (t.date) datesSet.add(t.date); });
@@ -56,21 +79,26 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
 
   const [selectedDate, setSelectedDate] = useState<string>('2026-05-26');
   
-  // Sync selectedDate with available dates if it gets out of bounds
+  // Sync selectedDate met beschikbare datums
   useEffect(() => {
     if (uniqueDates.length > 0 && !uniqueDates.includes(selectedDate)) {
       setSelectedDate(uniqueDates[0]);
     }
   }, [uniqueDates, selectedDate]);
 
-  // Extract unique weeks from task registry for week filter
+  // Extract unique weeks uit database
   const uniqueWeeks = useMemo(() => {
     const weeksSet = new Set<number>();
-    tasks.forEach(t => { if (t.week) weeksSet.add(t.week); });
+    tasks.forEach(t => { 
+      // Filter alvast op geselecteerd jaar om de weeklijst overzichtelijk te houden
+      if (t.week && t.date && t.date.startsWith(yearFilter)) {
+        weeksSet.add(t.week); 
+      }
+    });
     return Array.from(weeksSet).sort((a, b) => a - b);
-  }, [tasks]);
+  }, [tasks, yearFilter]);
 
-  // --- Helper to extract Subjects ---
+  // Helper om onderwerpen te categoriseren
   const getTaskSubject = (task: Task) => {
     if (task.subject) return task.subject;
     if (task.description === 'Verlof' || task.description === 'Leave') return 'Verlof';
@@ -79,9 +107,20 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
     return 'Todo';
   };
 
-  // --- 2. Calculate Consolidated Global Tasks pool ---
+  // --- 2. Calculate Consolidated Global Tasks pool (Met de nieuwe Jaar/Maand filters) ---
   const globalFilteredTasks = useMemo(() => {
     return tasks.filter(task => {
+      if (!task.date) return false;
+      const [y, m, d] = task.date.split('-');
+      const taskMonthIndex = parseInt(m, 10) - 1; // 0-11 index
+
+      // 1. HARD JAAR FILTER (Voorkomt vermenging van 2026 met toekomstige jaren)
+      if (yearFilter !== 'all' && y !== yearFilter) return false;
+
+      // 2. MAAND FILTER
+      if (monthFilter !== 'all' && taskMonthIndex.toString() !== monthFilter) return false;
+
+      // Zoekterm filter
       if (dashSearch) {
         const term = dashSearch.toLowerCase();
         const taskDesc = task.description.toLowerCase();
@@ -90,22 +129,18 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
       }
 
       if (personFilter !== 'all' && task.teamMemberId !== personFilter) return false;
-      if (weekFilter !== 'all' && task.week.toString() !== weekFilter) return false;
+      
+      // Week filter (alleen toepassen als we niet puur per dag kijken)
+      if (timeframe !== 'daily' && weekFilter !== 'all' && task.week.toString() !== weekFilter) return false;
 
-      if (globalSubjectFilter !== 'all') {
-        const subjectOfTask = getTaskSubject(task);
-        if (subjectOfTask !== globalSubjectFilter) return false;
-      }
-
+      if (globalSubjectFilter !== 'all' && getTaskSubject(task) !== globalSubjectFilter) return false;
       if (globalPriorityFilter !== 'all' && task.priority !== globalPriorityFilter) return false;
 
-      if (timeframe === 'daily') {
-        if (task.date !== selectedDate) return false;
-      }
+      if (timeframe === 'daily' && task.date !== selectedDate) return false;
 
       return true;
     });
-  }, [tasks, dashSearch, personFilter, weekFilter, globalSubjectFilter, globalPriorityFilter, timeframe, selectedDate]);
+  }, [tasks, dashSearch, personFilter, weekFilter, globalSubjectFilter, globalPriorityFilter, timeframe, selectedDate, yearFilter, monthFilter]);
 
   // --- 3. Top Metrics Row ---
   const totalTasksCount = globalFilteredTasks.length;
@@ -121,9 +156,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
       const [eh, em] = task.endTime.split(':').map(Number);
       const decS = sh + (sm || 0) / 60;
       const decE = eh + (em || 0) / 60;
-      if (decE > decS) {
-        sumHrs += (decE - decS);
-      }
+      if (decE > decS) sumHrs += (decE - decS);
     });
     return Math.round(sumHrs);
   }, [globalFilteredTasks]);
@@ -134,15 +167,22 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
     return ids.size === 0 ? Math.min(teamMembers.length, 5) : ids.size;
   }, [globalFilteredTasks]);
 
-  // --- DYNAMISCHE VERLOFSALDI LOGICA (DOEL 5) ---
+  // --- 4. DYNAMISCHE VERLOFSALDI LOGICA (JAAR EN MAAND REACTIEF) ---
   const leaveReportData = useMemo(() => {
     return teamMembers.map(member => {
-      // Filter alle verlof-taken van dit lid binnen de huidige tijdsselectie (dag/week/alles)
       const memberLeaveTasks = tasks.filter(task => {
         if (task.teamMemberId !== member.id) return false;
         if (getTaskSubject(task) !== 'Verlof') return false;
+        if (!task.date) return false;
+        
+        const [y, m, d] = task.date.split('-');
+        const taskMonthIndex = parseInt(m, 10) - 1;
+
+        if (yearFilter !== 'all' && y !== yearFilter) return false;
+        if (monthFilter !== 'all' && taskMonthIndex.toString() !== monthFilter) return false;
         if (timeframe === 'daily' && task.date !== selectedDate) return false;
-        if (weekFilter !== 'all' && task.week.toString() !== weekFilter) return false;
+        if (timeframe === 'weekly' && weekFilter !== 'all' && task.week.toString() !== weekFilter) return false;
+        
         return true;
       });
 
@@ -155,8 +195,6 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
         if (decE > decS) totalHours += (decE - decS);
       });
 
-      const totalDays = totalHours / 8; // Omrekening op basis van een 8-urige werkdag
-
       return {
         id: member.id,
         name: member.name,
@@ -164,33 +202,23 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
         color: member.color,
         email: (member as any).email || 'Geen mail',
         hours: Math.round(totalHours * 10) / 10,
-        days: Math.round(totalDays * 10) / 10,
+        days: Math.round((totalHours / 8) * 10) / 10,
         count: memberLeaveTasks.length
       };
     });
-  }, [tasks, teamMembers, timeframe, selectedDate, weekFilter]);
+  }, [tasks, teamMembers, timeframe, selectedDate, weekFilter, yearFilter, monthFilter]);
 
-  // Dynamic 4-Chart Dashboard Configuration State
-  const [widgets, setWidgets] = useState<WidgetConfig[]>([
-    { id: 1, title: 'Totaal Taken per Medewerker', dataSource: 'user_workload', vizType: 'bar', filterSubject: 'all', filterPriority: 'all' },
-    { id: 2, title: 'Onderwerpen Verdeling', dataSource: 'subject', vizType: 'pie', filterSubject: 'all', filterPriority: 'all' },
-    { id: 3, title: 'Trend Urgente & Hoge Prioriteit', dataSource: 'priority', vizType: 'line', filterSubject: 'all', filterPriority: 'all' },
-    { id: 4, title: 'Prioriteiten Volume Verloop', dataSource: 'priority', vizType: 'area', filterSubject: 'all', filterPriority: 'all' }
-  ]);
-
-  const [editingWidgetId, setEditingWidgetId] = useState<number | null>(null);
-  const [activeTooltip, setActiveTooltip] = useState<{ widgetId: number; label: string; value: number; extra?: string; x: number; y: number; } | null>(null);
-
+  // Bins / Assen-indeling voor trendgrafieken
   const timeframeBins = useMemo(() => {
     if (timeframe === 'daily') {
       return ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00'];
     } else if (timeframe === 'weekly') {
       return ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag'];
     } else {
-      const weeksRepresented = uniqueWeeks.length > 0 ? uniqueWeeks : [21, 22, 23, 24];
-      return weeksRepresented.map(wk => `Week ${wk}`);
+      // MAANDELIJKS MODE: Toon nu strak de 12 kalendermaanden ipv willekeurige weken!
+      return MONTH_NAMES;
     }
-  }, [timeframe, uniqueWeeks]);
+  }, [timeframe]);
 
   const handleOffsetDate = (offset: number) => {
     const curIdx = uniqueDates.indexOf(selectedDate);
@@ -202,9 +230,9 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
 
   const getTasksCountForBin = (bin: string, taskPool: Task[]) => {
     if (timeframe === 'daily') {
-      const binHr = parseInt(bin.split(':')[0]);
+      const binHr = parseInt(bin.split(':')[0], 10);
       return taskPool.filter(t => {
-        const startH = parseInt(t.startTime.split(':')[0]);
+        const startH = parseInt(t.startTime.split(':')[0], 10);
         return startH >= binHr && startH < binHr + 2;
       }).length;
     } else if (timeframe === 'weekly') {
@@ -214,13 +242,29 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
         return matchDays[dayIdx] === bin;
       }).length;
     } else {
-      const weekNum = parseInt(bin.replace(/\D/g, '')) || 22;
-      return taskPool.filter(t => t.week === weekNum).length;
+      // Maandelijks verloop over de 12 maanden
+      const binMonthIndex = MONTH_NAMES.indexOf(bin);
+      return taskPool.filter(t => {
+        if (!t.date) return false;
+        const m = parseInt(t.date.split('-')[1], 10) - 1;
+        return m === binMonthIndex;
+      }).length;
     }
   };
 
+  // Dashboard configuratie
+  const [widgets, setWidgets] = useState<WidgetConfig[]>([
+    { id: 1, title: 'Totaal Taken per Medewerker', dataSource: 'user_workload', vizType: 'bar', filterSubject: 'all', filterPriority: 'all' },
+    { id: 2, title: 'Onderwerpen Verdeling', dataSource: 'subject', vizType: 'pie', filterSubject: 'all', filterPriority: 'all' },
+    { id: 3, title: 'Trend Urgente & Hoge Prioriteit', dataSource: 'priority', vizType: 'line', filterSubject: 'all', filterPriority: 'all' },
+    { id: 4, title: 'Prioriteiten Volume Verloop', dataSource: 'priority', vizType: 'area', filterSubject: 'all', filterPriority: 'all' }
+  ]);
+
+  const [editingWidgetId, setEditingWidgetId] = useState<number | null>(null);
+  const [activeTooltip, setActiveTooltip] = useState<{ widgetId: number; label: string; value: number; extra?: string; x: number; y: number; } | null>(null);
+
   return (
-    <div id="analytics-canvas-root" className="space-y-8 pb-16 relative font-sans text-slate-900">
+    <div id="analytics-canvas-root" className="space-y-8 pb-16 relative">
 
       {/* Hero Header Tab Panel */}
       <div id="analytics-header-row" className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
@@ -229,7 +273,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
             <span className="w-2.5 h-6 rounded bg-blue-600 inline-block" />
             Uitgebreid Analytics Dashboard
           </h2>
-          <p className="text-xs text-slate-400 mt-1 font-medium">Controleer werkdrukken, verlofsaldi en taakfrequenties van het TIS-A team.</p>
+          <p className="text-xs text-slate-400 mt-1 font-medium">Controleer werkdrukken, verlofsaldi en taakfrequenties over meerdere jaren.</p>
         </div>
 
         {/* Timeframe Scale Selector */}
@@ -240,12 +284,12 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
         </div>
       </div>
 
-      {/* 4 Stats Metrics Cards */}
+      {/* 4 Stats Cards */}
       <div id="stats-grid-4cards" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center gap-4 hover:shadow-md transition-all">
           <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shadow-sm shrink-0"><Layers className="w-5.5 h-5.5" /></div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">TOTAAL TAKEN</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">GEFILTERDE TAKEN</p>
             <h3 className="text-xl font-black text-slate-800 tracking-tight mt-1.5 truncate">{totalTasksCount}</h3>
           </div>
         </div>
@@ -259,61 +303,61 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center gap-4 hover:shadow-md transition-all">
           <div className="w-11 h-11 rounded-xl bg-yellow-50 flex items-center justify-center text-yellow-650 border border-yellow-100 shadow-sm shrink-0"><Clock className="w-5.5 h-5.5" /></div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">GEPLAND (U)</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">PLANNINGSUREN</p>
             <h3 className="text-xl font-black text-slate-800 tracking-tight mt-1.5 truncate">{totalHoursPlanned} uur</h3>
           </div>
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center gap-4 hover:shadow-md transition-all">
           <div className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100 shadow-sm shrink-0"><Users className="w-5.5 h-5.5" /></div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">ACTIEVE GEBRUIKERS</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">BEZETTE PERSONEN</p>
             <h3 className="text-xl font-black text-slate-800 tracking-tight mt-1.5 truncate">{activePlannersCount}</h3>
           </div>
         </div>
       </div>
 
-      {/* Global Filter Controller Card */}
+      {/* Global Filter Bar */}
       <div id="dashboard-filters" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
         <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
           <div className="relative w-full lg:max-w-xs shrink-0">
-            <input type="text" placeholder="Filter op beschrijving of naam..." value={dashSearch} onChange={(e) => setDashSearch(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500 focus:bg-white placeholder-slate-400 text-sm" />
+            <input type="text" placeholder="Zoek op omschrijving of naam..." value={dashSearch} onChange={(e) => setDashSearch(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500 focus:bg-white placeholder-slate-400" />
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 w-full justify-end">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">ONDERWERP</span>
-              <select value={globalSubjectFilter} onChange={(e) => setGlobalSubjectFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 max-w-[150px] focus:outline-none">
-                <option value="all">📁 Alle Onderwerpen</option>
-                <option value="Todo">Todo</option>
-                <option value="Verlof">Verlof</option>
-                <option value="Training">Training</option>
-                <option value="Meeting">Meeting</option>
+            
+            {/* NIEUW: JAAR SELECTOR */}
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">📅 JAAR</span>
+              <select value={yearFilter} onChange={(e) => { setYearFilter(e.target.value); setWeekFilter('all'); }} className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-blue-600 focus:outline-none">
+                <option value="all">Alle jaren</option>
+                {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">PRIORITEIT</span>
-              <select value={globalPriorityFilter} onChange={(e) => setGlobalPriorityFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 max-w-[150px] focus:outline-none">
-                <option value="all">⚡ Alle Prioriteiten</option>
-                <option value={Priority.CRITICAL}>🔴 Urgent / Kritiek</option>
-                <option value={Priority.HIGH}>🟠 Hoog / High</option>
-                <option value={Priority.MEDIUM}>🟡 Medium</option>
-                <option value={Priority.LOW}>🟢 Low / Laag</option>
+
+            {/* NIEUW: MAAND SELECTOR */}
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">📆 MAAND</span>
+              <select value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none">
+                <option value="all">Alle maanden</option>
+                {MONTH_NAMES.map((name, idx) => <option key={idx} value={idx.toString()}>{name}</option>)}
               </select>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">MEDEWERKER</span>
-              <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 max-w-[150px] focus:outline-none">
-                <option value="all">👥 Alle Personen</option>
+
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">👥 MEDEWERKER</span>
+              <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none">
+                <option value="all">👥 Iedereen</option>
                 {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
-            {timeframe !== 'daily' && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">WEEK</span>
-                <select value={weekFilter} onChange={(e) => setWeekFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none font-mono">
-                  <option value="all font-sans">📅 Alle Weken</option>
-                  {uniqueWeeks.map((wk) => <option key={wk} value={wk.toString()}>Week {wk}</option>)}
+
+            {timeframe === 'weekly' && (
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Wk</span>
+                <select value={weekFilter} onChange={(e) => setWeekFilter(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none font-mono">
+                  <option value="all">Alle Weken</option>
+                  {uniqueWeeks.map((wk) => <option key={wk} value={wk.toString()}>Wk {wk}</option>)}
                 </select>
               </div>
             )}
@@ -324,14 +368,14 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
           <div id="daily-scroller-box" className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-blue-550 shrink-0" />
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">GESELECTEERDE DATUM ANALYSE</span>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">DAGELIJKS FILTER CONTEXT</span>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => handleOffsetDate(-1)} className="p-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 cursor-pointer"><ChevronLeft className="w-4 h-4" /></button>
+              <button onClick={() => handleOffsetDate(-1)} className="p-1 rounded-lg border border-slate-200 bg-white text-slate-600 cursor-pointer"><ChevronLeft className="w-4 h-4" /></button>
               <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-white border border-slate-250 rounded-lg px-3 py-1 text-xs font-bold font-mono text-slate-750 focus:outline-none">
-                {uniqueDates.map(d => <option key={d} value={d}>{d}</option>)}
+                {uniqueDates.filter(d => d.startsWith(yearFilter)).map(d => <option key={d} value={d}>{d}</option>)}
               </select>
-              <button onClick={() => handleOffsetDate(1)} className="p-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 cursor-pointer"><ChevronRight className="w-4 h-4" /></button>
+              <button onClick={() => handleOffsetDate(1)} className="p-1 rounded-lg border border-slate-200 bg-white text-slate-600 cursor-pointer"><ChevronRight className="w-4 h-4" /></button>
             </div>
           </div>
         )}
@@ -341,16 +385,21 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
       <div id="dynamic-widgets-grid" className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {widgets.map((widget, widIdx) => {
           const widgetFilteredTasks = tasks.filter(task => {
+            if (!task.date) return false;
+            const [y, m, d] = task.date.split('-');
+            if (yearFilter !== 'all' && y !== yearFilter) return false;
+            if (monthFilter !== 'all' && (parseInt(m, 10) - 1).toString() !== monthFilter) return false;
+
             if (dashSearch) {
               const term = dashSearch.toLowerCase();
               const dM = (teamMembers.find(m => m.id === task.teamMemberId)?.name || '').toLowerCase();
               if (!task.description.toLowerCase().includes(term) && !dM.includes(term)) return false;
             }
             if (personFilter !== 'all' && task.teamMemberId !== personFilter) return false;
-            if (weekFilter !== 'all' && task.week.toString() !== weekFilter) return false;
+            if (timeframe === 'weekly' && weekFilter !== 'all' && task.week.toString() !== weekFilter) return false;
+            if (timeframe === 'daily' && task.date !== selectedDate) return false;
             if (globalSubjectFilter !== 'all' && getTaskSubject(task) !== globalSubjectFilter) return false;
             if (globalPriorityFilter !== 'all' && task.priority !== globalPriorityFilter) return false;
-            if (timeframe === 'daily' && task.date !== selectedDate) return false;
             if (widget.filterSubject !== 'all' && getTaskSubject(task) !== widget.filterSubject) return false;
             if (widget.filterPriority !== 'all' && task.priority !== widget.filterPriority) return false;
             return true;
@@ -360,7 +409,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
           const chartDataItems = (() => {
             if (isTrend) {
               return timeframeBins.map(bin => ({
-                label: bin,
+                label: timeframe === 'monthly' ? bin.substring(0, 3) : bin, // Korte maandnaam voor grafiek-as
                 fullName: bin,
                 value: getTasksCountForBin(bin, widgetFilteredTasks),
                 color: widget.dataSource === 'subject' ? '#3b82f6' : widget.dataSource === 'priority' ? '#f43f5e' : '#8b5cf6'
@@ -376,7 +425,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
                 const priorityLevels = [Priority.CRITICAL, Priority.HIGH, Priority.MEDIUM, Priority.LOW];
                 const priorityColors = { [Priority.CRITICAL]: '#f43f5e', [Priority.HIGH]: '#f97316', [Priority.MEDIUM]: '#eab308', [Priority.LOW]: '#10b981' };
                 return priorityLevels.map(lvl => ({
-                  label: lvl, fullName: lvl === Priority.CRITICAL ? 'Urgent' : lvl.toLowerCase(), value: widgetFilteredTasks.filter(t => t.priority === lvl).length, color: priorityColors[lvl] || '#94a3b8'
+                  label: lvl, fullName: lvl === Priority.CRITICAL ? 'Urgent' : lvl.toLowerCase(), value: widgetFilteredTasks.filter(t => t.priority === lvl).length, color: priorityColors[lvl]
                 }));
               } else {
                 return teamMembers.map(m => ({
@@ -392,7 +441,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
           const pieSlices = (() => {
             if (widget.vizType !== 'pie') return [];
             let currentAngle = 0;
-            const radius = 55, strokeWidth = 14, center = 75, circ = 2 * Math.PI * radius;
+            const radius = 55, circ = 2 * Math.PI * radius;
             const total = chartDataItems.reduce((acc, c) => acc + c.value, 0) || 1;
             return chartDataItems.map((item) => {
               const ratio = item.value / total, angle = ratio * 360, offset = circ - (ratio * circ), rotation = currentAngle - 90;
@@ -412,7 +461,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
                   <div className="flex items-center gap-2 mt-0.5 text-[9px] text-slate-400 font-mono font-medium">
                     <span className="capitalize">{widget.dataSource.replace('_', ' ')}</span>
                     <span>•</span>
-                    <span>{totalWidgetTasksCount} taken</span>
+                    <span>{totalWidgetTasksCount} geanalyseerd</span>
                   </div>
                 </div>
                 <button onClick={() => setEditingWidgetId(editingWidgetId === widget.id ? null : widget.id)} className={`p-1.5 rounded-lg border transition-all cursor-pointer ${editingWidgetId === widget.id ? 'bg-amber-500 text-white border-amber-600' : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}><Settings className="w-3.5 h-3.5" /></button>
@@ -458,7 +507,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
                           return (
                             <div key={id} className="flex-1 flex flex-col items-center justify-end h-full relative group cursor-pointer" onMouseEnter={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setActiveTooltip({ widgetId: widget.id, label: item.fullName, value: item.value, x: rect.left + rect.width / 2, y: rect.top - 38 }); }} onMouseLeave={() => setActiveTooltip(null)}>
                               <span className="text-[9px] font-black text-slate-700 tracking-tight mb-1 font-mono">{item.value}</span>
-                              <div style={{ height: `${percentage}%`, backgroundColor: item.color }} className="w-full min-w-[12px] max-w-[40px] rounded-t-lg transition-all duration-300 shadow-sm" />
+                              <div style={{ height: `${percentage}%`, backgroundColor: item.color }} className="w-full min-w-[10px] max-w-[40px] rounded-t-lg transition-all duration-300" />
                               <span className="absolute -bottom-5 text-[9px] font-bold text-slate-450 tracking-tight w-full text-center truncate px-0.5">{item.label}</span>
                             </div>
                           );
@@ -534,7 +583,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
                                 <circle key={idx} cx={item.x} cy={item.y} r="4" fill={themeStroke} stroke="white" strokeWidth="1.5" className="cursor-pointer" onMouseEnter={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setActiveTooltip({ widgetId: widget.id, label: item.fullName, value: item.value, x: rect.left + 5, y: rect.top - 38 }); }} onMouseLeave={() => setActiveTooltip(null)} />
                               ))}
                               {pointsStr.map((item, idx) => (
-                                <text key={idx} x={item.x} y={svgH - 4} textAnchor="middle" className="text-[8px] fill-slate-400 font-bold">{item.label}</text>
+                                <text key={idx} x={item.x} y={svgH - 4} textAnchor="middle" className="text-[7px] fill-slate-400 font-bold">{item.label}</text>
                               ))}
                             </svg>
                           </div>
@@ -553,7 +602,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
         })}
       </div>
 
-      {/* --- NIEUWE HR-SECTIE: VERLOFSALDI & BEZETTINGSMATRIX (DOEL 5) --- */}
+      {/* --- HR-SECTIE: VERLOFSALDI & BEZETTINGSMATRIX --- */}
       <div id="leave-balances-panel" className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -562,11 +611,11 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-800 tracking-tight">Verlofsaldi & Bezettingsgraad</h3>
-              <p className="text-xs text-slate-400 font-medium">Berekend op basis van de geselecteerde tijdsfilters hierboven (o.b.v. 8u werkdag)</p>
+              <p className="text-xs text-slate-400 font-medium">Berekend op basis van de geselecteerde tijds- en jaarfilters (o.b.v. 8u werkdag)</p>
             </div>
           </div>
-          <span className="text-[10px] font-mono bg-slate-100 text-slate-500 font-bold px-3 py-1 rounded-xl uppercase tracking-wider">
-            {timeframe === 'weekly' && weekFilter !== 'all' ? `Analyse Week ${weekFilter}` : 'Algemene Historiek'}
+          <span className="text-[10px] font-mono bg-blue-50 text-blue-600 border border-blue-100 font-bold px-3 py-1 rounded-xl uppercase tracking-wider">
+            {yearFilter !== 'all' ? `Rapportage ${yearFilter}` : 'Alle Jaren Combinatie'}
           </span>
         </div>
 
@@ -575,7 +624,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 uppercase tracking-wider text-[10px] font-bold select-none">
                 <th className="py-3 px-4">Medewerker</th>
-                <th className="py-3 px-4"><span className="flex items-center gap-1"><Mail className="w-3 h-3" /> E-mailadres</span></th>
+                <th className="py-3 px-4">E-mailadresse</th>
                 <th className="py-3 px-4 text-center">Geregistreerde Verlofblokken</th>
                 <th className="py-3 px-4 text-center">Totaal Uren Verlof</th>
                 <th className="py-3 px-4 text-right pr-6">Opgenomen Dagen</th>
@@ -584,32 +633,23 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
             <tbody className="divide-y divide-slate-150 text-slate-700 text-xs font-medium">
               {leaveReportData.map((report) => (
                 <tr key={report.id} className="hover:bg-slate-50 transition-colors">
-                  {/* Naam + Initials Badge */}
                   <td className="py-3.5 px-4 flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shadow-sm flex-shrink-0 ${report.color.split(' ')[0]}`}>
                       {report.initials}
                     </div>
                     <span className="font-bold text-slate-800">{report.name}</span>
                   </td>
-                  
-                  {/* Email */}
                   <td className="py-3.5 px-4 text-slate-500 text-xs font-normal">
                     {report.email}
                   </td>
-                  
-                  {/* Aantal blokken */}
                   <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-600">
                     {report.count}x
                   </td>
-                  
-                  {/* Uren teller */}
                   <td className="py-3.5 px-4 text-center">
                     <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold ${report.hours > 0 ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-slate-50 text-slate-400'}`}>
                       {report.hours} u
                     </span>
                   </td>
-                  
-                  {/* Dagen omrekening */}
                   <td className="py-3.5 px-4 text-right pr-6 font-mono font-black text-sm text-slate-800">
                     <span className={report.days > 0 ? 'text-rose-600' : 'text-slate-400 font-normal'}>
                       {report.days} {report.days === 1 ? 'dag' : 'dagen'}
@@ -622,7 +662,7 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
         </div>
       </div>
 
-      {/* HTML Target Interactive Tooltip Hover Block */}
+      {/* Interactive Tooltip Hover Block */}
       {activeTooltip && (
         <div style={{ position: 'fixed', left: `${activeTooltip.x}px`, top: `${activeTooltip.y}px`, transform: 'translate(-50%, -10px)' }} className="bg-slate-900/95 backdrop-blur-sm pr-3 pl-3.5 py-2 rounded-xl text-white shadow-xl flex items-center gap-2 pointer-events-none z-50 border border-white/10">
           <div className="space-y-0.5 text-left">
@@ -635,13 +675,6 @@ export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps
         </div>
       )}
 
-      {/* Styled Animations sheet Injection */}
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(30, 41, 59, 0.02); border-radius: 99px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.25); border-radius: 99px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.45); }
-      `}</style>
     </div>
   );
 }
