@@ -18,6 +18,21 @@ import {
   Settings 
 } from 'lucide-react';
 
+// HELPER: Convert "HH:MM" naar decimaal getal voor tijd-berekeningen
+function parseTimeToDecimal(timeStr: string): number {
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours + (minutes || 0) / 60;
+}
+
+// HELPER: ISO Weeknummer berekenen op basis van Date object
+function getISOWeekFromDate(d: Date): number {
+  const dateCopy = new Date(d.getTime());
+  dateCopy.setHours(0, 0, 0, 0);
+  dateCopy.setDate(dateCopy.getDate() + 3 - (dateCopy.getDay() + 6) % 7);
+  const week1 = new Date(dateCopy.getFullYear(), 0, 4);
+  return 1 + Math.round(((dateCopy.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+}
+
 function dbToTask(row: any): Task {
   return {
     id: row.id,
@@ -52,7 +67,7 @@ function taskToDb(task: Partial<Task>): any {
 
 export default function App() {
   const [session, setSession] = useState<UserSession | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null); // State voor blokkering melding
+  const [authError, setAuthError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [teamMembersState, setTeamMembersState] = useState<TeamMember[]>(initialTeamMembers);
   const [activeTab, setActiveTab] = useState<'dag' | 'week' | 'analytics' | 'archive' | 'settings'>('dag');
@@ -100,7 +115,7 @@ export default function App() {
     fetchTeamMembers();
   }, []);
 
-  // Sync Google Auth Browser Session + Harde Poortwachter controle
+  // Sync Google Auth Browser Session
   useEffect(() => {
     const syncUserSession = (sbSession: any) => {
       if (!sbSession?.user) {
@@ -112,7 +127,6 @@ export default function App() {
       const email = user.email || '';
       const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Teamlid';
 
-      // 1. VIP Ingang: Tom of Bart (Altijd direct Superuser)
       const isTom = email.toLowerCase().includes('tom.de.keukeleire') || fullName.toLowerCase().includes('tom de keukeleire');
       const isBart = email.toLowerCase().includes('bart.vanneste') || fullName.toLowerCase().includes('bart vanneste');
 
@@ -127,14 +141,12 @@ export default function App() {
         return;
       }
 
-      // 2. WATERDICHTE GRONDCHECK: Match exact op ingevoerd mailadres uit de database
       const matched = teamMembersState.find(m => (m as any).email?.toLowerCase() === email.toLowerCase());
       
       if (matched) {
         setSession({ memberId: matched.id, name: matched.name, initials: matched.initials, role: 'User' });
         setAuthError(null);
       } else {
-        // GEEN MATCH GEVONDEN -> KRIJGT ABSOLUUT GEEN TOEGANG. DIRECT UITLOGGEN EN BLOKKEREN.
         supabase.auth.signOut();
         setSession(null);
         setAuthError(`Toegang geweigerd. Uw TVH-account (${email}) is niet geautoriseerd voor deze weekplanner. Neem contact op met Tom of Bart.`);
@@ -194,9 +206,28 @@ export default function App() {
     setIsModalOpen(true);
   };
 
-  const handleSaveTask = async (taskPayload: Partial<Task>) => {
+  const handleSaveTask = async (taskPayload: any) => {
     setIsModalOpen(false);
+
+    const tStart = parseTimeToDecimal(taskPayload.startTime || '08:00');
+    const tEnd = parseTimeToDecimal(taskPayload.endTime || '09:00');
+    const initialDate = taskPayload.date || selectedDate;
+
+    // 1. DYNAMISCHE CONFLICTDETECTIE
+    const hasConflict = tasks.some(t => 
+      t.teamMemberId === taskPayload.teamMemberId &&
+      t.date === initialDate &&
+      t.id !== taskPayload.id &&
+      (parseTimeToDecimal(t.startTime) < tEnd && parseTimeToDecimal(t.endTime) > tStart)
+    );
+
+    if (hasConflict) {
+      const proceed = window.confirm(`⚠️ Let op: Dit teamlid heeft al een andere taak gepland op dit tijdstip (${taskPayload.startTime} - ${taskPayload.endTime}). Wilt u deze boeking toch forceren en doorvoeren?`);
+      if (!proceed) return;
+    }
+
     if (taskPayload.id) {
+      // BEWERKEN LOGICA
       const index = tasks.findIndex(t => t.id === taskPayload.id);
       if (index === -1) return;
       const original = tasks[index];
@@ -209,24 +240,71 @@ export default function App() {
         setTasks(prev => { const c = [...prev]; c[index] = original; return c; });
       }
     } else {
-      const newId = Math.random().toString(36).substring(2, 9);
-      const newTask: Task = {
-        id: newId,
-        date: taskPayload.date || selectedDate,
-        week: taskPayload.week || 22,
-        teamMemberId: taskPayload.teamMemberId!,
-        description: taskPayload.description!,
-        startTime: taskPayload.startTime!,
-        endTime: taskPayload.endTime!,
-        priority: taskPayload.priority!,
-        createdBy: session?.name || 'User',
-        createdAt: Date.now()
-      };
-      setTasks(prev => [...prev, newTask]);
-      try {
-        await supabase.from('tasks').insert(taskToDb(newTask));
-      } catch {
-        setTasks(prev => prev.filter(t => t.id !== newId));
+      // INVOER LOGICA
+      if (taskPayload.repeatWeekly) {
+        // 2. LOGICA VOOR WEDERKERENDE TAKEN (Loop wekelijks tot einde 2026)
+        const generatedTasks: Task[] = [];
+        const dbRows: any[] = [];
+        let currentNewDate = new Date(initialDate);
+
+        while (currentNewDate.getFullYear() === 2026) {
+          const dateStr = currentNewDate.toISOString().split('T')[0];
+          const calculatedWeek = getISOWeekFromDate(currentNewDate);
+          const generatedId = Math.random().toString(36).substring(2, 9);
+
+          const newTask: Task = {
+            id: generatedId,
+            date: dateStr,
+            week: calculatedWeek,
+            teamMemberId: taskPayload.teamMemberId!,
+            subject: taskPayload.subject,
+            description: taskPayload.description!,
+            startTime: taskPayload.startTime!,
+            endTime: taskPayload.endTime!,
+            priority: taskPayload.priority!,
+            createdBy: session?.name || 'User',
+            createdAt: Date.now()
+          };
+
+          generatedTasks.push(newTask);
+          dbRows.push(taskToDb(newTask));
+
+          // Verhoog de datum met 7 dagen voor de volgende week
+          currentNewDate.setDate(currentNewDate.getDate() + 7);
+        }
+
+        // Bulk insert in state & database
+        setTasks(prev => [...prev, ...generatedTasks]);
+        try {
+          await supabase.from('tasks').insert(dbRows);
+          triggerNotification(`🔄 Wederkerend item succesvol ingepland voor ${generatedTasks.length} weken!`);
+        } catch {
+          const addedIds = generatedTasks.map(t => t.id);
+          setTasks(prev => prev.filter(t => !addedIds.includes(t.id)));
+        }
+
+      } else {
+        // GEWONE ENKELE TAAK LOGICA
+        const newId = Math.random().toString(36).substring(2, 9);
+        const newTask: Task = {
+          id: newId,
+          date: initialDate,
+          week: taskPayload.week || 22,
+          teamMemberId: taskPayload.teamMemberId!,
+          subject: taskPayload.subject,
+          description: taskPayload.description!,
+          startTime: taskPayload.startTime!,
+          endTime: taskPayload.endTime!,
+          priority: taskPayload.priority!,
+          createdBy: session?.name || 'User',
+          createdAt: Date.now()
+        };
+        setTasks(prev => [...prev, newTask]);
+        try {
+          await supabase.from('tasks').insert(taskToDb(newTask));
+        } catch {
+          setTasks(prev => prev.filter(t => t.id !== newId));
+        }
       }
     }
   };
@@ -242,7 +320,6 @@ export default function App() {
     }
   };
 
-  // EERSTE SCHERMCHECK: HARD BLOKKERINGSSCHERM BIJ RECHTEN-PROBLEEM
   if (authError) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans">
@@ -251,12 +328,7 @@ export default function App() {
             <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4 font-bold text-xl">⚠️</div>
             <h3 className="text-lg font-bold text-slate-800 mb-2">Geen Toegang</h3>
             <p className="text-xs text-slate-500 leading-relaxed mb-6">{authError}</p>
-            <button 
-              onClick={() => setAuthError(null)} 
-              className="text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 px-4 py-2 rounded-lg transition-colors"
-            >
-              Terug naar login
-            </button>
+            <button onClick={() => setAuthError(null)} className="text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 px-4 py-2 rounded-lg transition-colors">Terug naar login</button>
           </div>
         </div>
       </div>
