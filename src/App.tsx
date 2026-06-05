@@ -111,6 +111,7 @@ export default function App() {
       const email = user.email || '';
       const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Teamlid';
 
+      // 1. Controleer of de inlogger Tom of Bart is (Altijd Superuser)
       const isTom = email.toLowerCase().includes('tom.de.keukeleire') || fullName.toLowerCase().includes('tom de keukeleire');
       const isBart = email.toLowerCase().includes('bart.vanneste') || fullName.toLowerCase().includes('bart vanneste');
 
@@ -123,12 +124,21 @@ export default function App() {
         return;
       }
 
-      const matched = teamMembersState.find(m => fullName.toLowerCase().includes(m.name.toLowerCase()));
+      // 2. SLIMME GEBRUIKERSCHECK: Match DIRECT op het ingevoerde e-mailadres uit de instellingen
+      const matched = teamMembersState.find(m => (m as any).email?.toLowerCase() === email.toLowerCase());
+      
       if (matched) {
         setSession({ memberId: matched.id, name: matched.name, initials: matched.initials, role: 'User' });
       } else {
-        const initials = fullName.split(' ').map((n: any) => n[0]).join('').toUpperCase().substring(0, 3);
-        setSession({ memberId: 'gen-' + user.id.substring(0, 4), name: fullName, initials, role: 'User' });
+        // Fallback als de mail (nog) niet in de lijst staat, match op naam als noodgreep
+        const nameMatched = teamMembersState.find(m => fullName.toLowerCase().includes(m.name.toLowerCase()));
+        if (nameMatched) {
+          setSession({ memberId: nameMatched.id, name: nameMatched.name, initials: nameMatched.initials, role: 'User' });
+        } else {
+          // Onbekende gebruiker
+          const initials = fullName.split(' ').map((n: any) => n[0]).join('').toUpperCase().substring(0, 3);
+          setSession({ memberId: 'gen-' + user.id.substring(0, 4), name: fullName, initials, role: 'User' });
+        }
       }
     };
 
@@ -254,15 +264,15 @@ export default function App() {
 
         <div className="flex items-center gap-4">
           <div className="bg-slate-100 p-1 rounded-xl border border-slate-200 flex items-center">
-            {/* HERNOEMD NAAR DAGOVERZICHT */}
             <button onClick={() => setActiveTab('dag')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'dag' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><CalendarDays className="w-4 h-4" /><span>Dagoverzicht</span></button>
-            
-            {/* NIEUWE KNOP: WEEKOVERZICHT */}
             <button onClick={() => setActiveTab('week')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><CalendarRange className="w-4 h-4" /><span>Weekoverzicht</span></button>
-            
             <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'analytics' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><BarChart3 className="w-4 h-4" /><span>Analytics</span></button>
             <button onClick={() => setActiveTab('archive')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'archive' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Archive className="w-4 h-4" /><span>Archief</span></button>
-            <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'settings' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Settings className="w-4 h-4" /><span>Instellingen</span></button>
+            
+            {/* HARD SECURITY CHECK 1: KNOP ALLEEN ZICHTBAAR VOOR SUPERUSERS */}
+            {session?.role === 'Superuser' && (
+              <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'settings' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Settings className="w-4 h-4" /><span>Instellingen</span></button>
+            )}
           </div>
 
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1.5 pr-3 h-11">
@@ -285,8 +295,16 @@ export default function App() {
           <PlannerCanvas tasks={tasks} teamMembers={teamMembersState} />
         ) : activeTab === 'archive' ? (
           <ArchiveScreen tasks={tasks} teamMembers={teamMembersState} />
-        ) : (
+        ) : activeTab === 'settings' && session?.role === 'Superuser' ? (
+          /* HARD SECURITY CHECK 2: INHOUD ALLEEN INLADEN ALS ROL IS SUPERUSER */
           <TeamSettingsScreen teamMembers={teamMembersState} tasks={tasks} onTriggerNotification={triggerNotification} />
+        ) : (
+          /* FALLBACK GEWEIGERD SCHERM */
+          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center max-w-md mx-auto my-12 shadow-sm">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4 font-bold text-xl">⚠️</div>
+            <h3 className="text-lg font-bold text-slate-800 mb-1">Toegang Geweigerd</h3>
+            <p className="text-sm text-slate-500">U heeft geen beheerdersrechten om de instellingen te bekijken.</p>
+          </div>
         )}
       </main>
 
