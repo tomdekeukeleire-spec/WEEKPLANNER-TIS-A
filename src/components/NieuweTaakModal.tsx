@@ -9,7 +9,10 @@ interface NieuweTaakModalProps {
   onDelete?: (taskId: string) => void;
   editingTask?: Task | null;
   defaultDate?: string; // YYYY-MM-DD
+  defaultMemberId?: string;
   teamMembers: TeamMember[];
+  isSuperuser: boolean;
+  currentUserId: string;
 }
 
 // ISO Week helper
@@ -25,16 +28,15 @@ function getISOWeek(dateStr: string): number {
 
 // Genereer tijden van 08:00 tot 16:00 per 15 minuten
 const ALLOWED_TIMES = [
-  '08:00', '08:30',
-  '09:00', '09:30',
-  '10:00', '10:30',
-  '11:00', '11:30',
-  '12:00', '12:30',
-  '13:00', '13:30',
-  '14:00', '14:30',
-  '15:00', '15:30', 
-  '16:00', '16:30',
-  '17:00'
+  '08:00', '08:15', '08:30', '08:45',
+  '09:00', '09:15', '09:30', '09:45',
+  '10:00', '10:15', '10:30', '10:45',
+  '11:00', '11:15', '11:30', '11:45',
+  '12:00', '12:15', '12:30', '12:45',
+  '13:00', '13:15', '13:30', '13:45',
+  '14:00', '14:15', '14:30', '14:45',
+  '15:00', '15:15', '15:30', '15:45',
+  '16:00'
 ];
 
 export default function NieuweTaakModal({
@@ -43,14 +45,18 @@ export default function NieuweTaakModal({
   onDelete,
   editingTask,
   defaultDate,
+  defaultMemberId,
   teamMembers,
+  isSuperuser,
+  currentUserId,
 }: NieuweTaakModalProps) {
-  // Set default form values
+  // Lock het teamlid: als normale user ben je het altijd zelf, als superuser gebruik je de gekozen rij
+  const [teamMemberId, setTeamMemberId] = useState<string>(
+    editingTask?.teamMemberId || (isSuperuser ? (defaultMemberId || (teamMembers.length > 0 ? teamMembers[0].id : '')) : currentUserId)
+  );
+  
   const [date, setDate] = useState<string>(defaultDate || '2026-05-26');
   const [week, setWeek] = useState<number>(22);
-  const [teamMemberId, setTeamMemberId] = useState<string>(
-    editingTask?.teamMemberId || (teamMembers.length > 0 ? teamMembers[0].id : '')
-  );
   const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Training' | 'Meeting'>('Todo');
   const [description, setDescription] = useState<string>('');
   const [startTime, setStartTime] = useState<string>('08:00');
@@ -97,7 +103,7 @@ export default function NieuweTaakModal({
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
 
-    // 1. Weekend-beveiliging (0 = Zondag, 6 = Zaterdag)
+    // Weekend-beveiliging
     const dateParts = date.split('-');
     if (dateParts.length === 3) {
       const y = parseInt(dateParts[0], 10);
@@ -198,17 +204,18 @@ export default function NieuweTaakModal({
             </div>
           </div>
 
-          {/* Teamlid */}
+          {/* Teamlid - UITGESCHAKELD VOOR NORMALE GEBRUIKERS */}
           <div id="field-team-member" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">
-              TOEWIJZEN AAN
+              TOEWIJZEN AAN {!isSuperuser && '(VERGRENDELD)'}
             </label>
             <select
               id="select-task-member"
               value={teamMemberId}
               required
+              disabled={!isSuperuser}
               onChange={(e) => setTeamMemberId(e.target.value)}
-              className="w-full border border-slate-250 bg-slate-50 rounded-lg px-4 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-shadow"
+              className="w-full border border-slate-250 bg-slate-50 rounded-lg px-4 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-shadow disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
             >
               {teamMembers.map((member) => (
                 <option key={member.id} value={member.id}>
@@ -253,7 +260,7 @@ export default function NieuweTaakModal({
           </div>
 
           <div className="grid grid-cols-2 gap-4 bg-transparent">
-            {/* Starttijd (Dropdown) */}
+            {/* Starttijd */}
             <div id="field-start" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-blue-500" /> START
@@ -271,7 +278,7 @@ export default function NieuweTaakModal({
               </select>
             </div>
 
-            {/* Eindtijd (Dropdown) */}
+            {/* Eindtijd */}
             <div id="field-end" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-blue-500" /> EINDE
