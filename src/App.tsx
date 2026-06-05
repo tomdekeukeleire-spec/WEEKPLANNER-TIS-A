@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { UserSession, Task, WebSocketMessage, Priority } from './types';
+import { UserSession, Task, WebSocketMessage, Priority, TeamMember } from './types';
+import LoginScreen from './components/LoginScreen';
 import TeamPlanner from './components/TeamPlanner';
 import PlannerCanvas from './components/PlannerCanvas';
 import ArchiveScreen from './components/ArchiveScreen';
 import NieuweTaakModal from './components/NieuweTaakModal';
-import { teamMembers } from './constants';
+import TeamSettingsScreen from './components/TeamSettingsScreen';
+import { teamMembers as initialTeamMembers } from './constants';
 import { supabase } from './supabase';
 import { 
   FolderLock, 
@@ -16,7 +18,9 @@ import {
   BarChart3,
   Archive,
   RefreshCw,
-  Bell
+  Bell,
+  Settings,
+  Users
 } from 'lucide-react';
 
 // Conversion helpers mapping local structure to user's Supabase tasks table format
@@ -55,9 +59,76 @@ function taskToDb(task: Partial<Task>): any {
 export default function App() {
   const [session, setSession] = useState<UserSession | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [activeTab, setActiveTab] = useState<'agenda' | 'analytics' | 'archive'>('agenda');
+  const [teamMembersState, setTeamMembersState] = useState<TeamMember[]>(initialTeamMembers);
+  const [activeTab, setActiveTab] = useState<'agenda' | 'analytics' | 'archive' | 'settings'>('agenda');
   const [selectedDate, setSelectedDate] = useState<string>('2026-05-26');
   const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // Fetch team members from Supabase and subscribe to PostgreSQL change events in real-time
+  useEffect(() => {
+    const fetchTeamMembers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('team_members')
+          .select('*')
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          console.error('Error loading team members from Supabase:', error);
+          // If the table does not exist or has an error, fall back to initialTeamMembers
+          setTeamMembersState(initialTeamMembers);
+        } else if (data && data.length > 0) {
+          setTeamMembersState(data);
+        } else {
+          // Table exists but is empty, bootstapping it with default values
+          setTeamMembersState(initialTeamMembers);
+          for (const member of initialTeamMembers) {
+            await supabase.from('team_members').upsert(member);
+          }
+        }
+      } catch (err) {
+        console.error('Network block loading team members:', err);
+        setTeamMembersState(initialTeamMembers);
+      }
+    };
+
+    fetchTeamMembers();
+
+    // Subscribe to REALTIME postgres updates for dynamic team list
+    const teamChannel = supabase
+      .channel('public:team_members-all')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'team_members' },
+        (payload) => {
+          console.log('Realtime change in team_members:', payload);
+          if (payload.eventType === 'INSERT') {
+            const m = payload.new as TeamMember;
+            setTeamMembersState((prev) => {
+              if (prev.some((x) => x.id === m.id)) return prev;
+              return [...prev, m];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const m = payload.new as TeamMember;
+            setTeamMembersState((prev) => {
+              const idx = prev.findIndex((x) => x.id === m.id);
+              if (idx === -1) return [...prev, m];
+              const copy = [...prev];
+              copy[idx] = m;
+              return copy;
+            });
+          } else if (payload.eventType === 'DELETE') {
+            const delId = payload.old.id;
+            setTeamMembersState((prev) => prev.filter((x) => x.id !== delId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(teamChannel);
+    };
+  }, []);
   
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -65,10 +136,9 @@ export default function App() {
   const [defaultTaskMemberId, setDefaultTaskMemberId] = useState<string>('');
   const [defaultTaskTime, setDefaultTaskTime] = useState<string>('09:00');
 
-  // New state added for local connection dropdown selection
-  const [localSelectedMember, setLocalSelectedMember] = useState<string>('');
-
-  const [socketStatus, setSocketStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connected');
+  // WebSocket reference
+  const socketRef = useRef<WebSocket | null>(null);
+  const [socketStatus, setSocketStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [activeUsers, setActiveUsers] = useState<UserSession[]>([]);
 
   // Instant action notifications banners state
@@ -110,7 +180,7 @@ export default function App() {
 
         if (error) {
           console.error('Error loading tasks from Supabase:', error);
-          triggerNotification('💡 Supabase verbinding actief! Voeg uw eerste taak toe.');
+          triggerNotification('💡 Supabase verbinding actief! Voeg uw eerste taak toe of voer de setup SQL uit.');
         } else if (data) {
           setTasks(data.map(dbToTask));
         }
@@ -160,11 +230,91 @@ export default function App() {
     };
   }, [session]);
 
-  // Neutralized broken WebSocket connection loops for clean console logs
+  // Sync / Connect WebSocket for user active status / session presence
   useEffect(() => {
-    if (!session) return;
-    setSocketStatus('connected');
-    setActiveUsers([session]);
+    if (!session) {
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+      return;
+    }
+
+    let isStopped = false;
+    let reconnectTimeout: number;
+
+    const connectWS = () => {
+      if (isStopped) return;
+      setSocketStatus('connecting');
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${protocol}//${window.location.host}`;
+      console.log('Connecting WebSockets to:', url);
+
+      const socket = new WebSocket(url);
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        setSocketStatus('connected');
+        console.log('WebSocket presence opened!');
+        
+        socket.send(JSON.stringify({
+          type: 'USER_JOINED',
+          user: session
+        }));
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          console.log('Presence socket payload:', msg.type);
+
+          switch (msg.type) {
+            case 'INIT':
+              setActiveUsers(msg.activeUsers || []);
+              break;
+
+            case 'USER_JOINED': {
+              const joined = msg.user as UserSession;
+              setActiveUsers(prev => {
+                if (prev.some(u => u.memberId === joined.memberId)) return prev;
+                return [...prev, joined];
+              });
+              triggerNotification(`👋 ${joined.name} is nu online!`);
+              break;
+            }
+
+            case 'USER_LEFT': {
+              const { memberId } = msg;
+              setActiveUsers(prev => prev.filter(u => u.memberId !== memberId));
+              break;
+            }
+          }
+        } catch (e) {
+          console.error('Error handling event payload', e);
+        }
+      };
+
+      socket.onclose = () => {
+        setSocketStatus('disconnected');
+        reconnectTimeout = window.setTimeout(connectWS, 4000);
+      };
+
+      socket.onerror = (err) => {
+        socket.close();
+      };
+    };
+
+    connectWS();
+
+    return () => {
+      isStopped = true;
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+      if (reconnectTimeout) {
+        window.clearTimeout(reconnectTimeout);
+      }
+    };
   }, [session]);
 
   const handleLoginSuccess = (user: UserSession) => {
@@ -179,27 +329,14 @@ export default function App() {
       setSession(null);
       setActiveUsers([]);
       setTasks([]);
-    }
-  };
-
-  // Local handler that maps user pick safely to state session parameters
-  const handleLocalInlineLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const member = teamMembers.find(m => m.id === localSelectedMember);
-    if (member) {
-      handleLoginSuccess({
-        memberId: member.id,
-        name: member.name,
-        initials: (member as any).initials || member.id,
-        role: 'User'
-      });
+      setSocketStatus('disconnected');
     }
   };
 
   // Add a task triggered by toolbar or row clicks
   const handleAddTaskTrigger = (memberId: string, initialHour?: string) => {
     setEditingTask(null);
-    setDefaultTaskMemberId(memberId || teamMembers[0].id);
+    setDefaultTaskMemberId(memberId || teamMembersState[0]?.id || '8');
     setDefaultTaskTime(initialHour || '09:00');
     setIsModalOpen(true);
   };
@@ -225,6 +362,7 @@ export default function App() {
         ...taskPayload,
       } as Task;
 
+      // Optimistic client update for seamless UX
       setTasks(prev => {
         const copy = [...prev];
         copy[index] = updatedTask;
@@ -241,6 +379,7 @@ export default function App() {
         if (error) {
           console.error('Supabase update failed:', error);
           triggerNotification(`🛑 Fout bij opslaan: ${error.message}`);
+          // Revert optimistic change
           setTasks(prev => {
             const copy = [...prev];
             copy[index] = original;
@@ -253,6 +392,8 @@ export default function App() {
     } else {
       // --- Create Flow ---
       const newId = Math.random().toString(36).substring(2, 9);
+      
+      // Determine correct values
       const dateVal = taskPayload.date || selectedDate;
       const parsedWeek = taskPayload.week || 22;
 
@@ -269,6 +410,7 @@ export default function App() {
         createdAt: Date.now()
       };
 
+      // Optimistic insert
       setTasks(prev => [...prev, newTask]);
 
       try {
@@ -280,6 +422,7 @@ export default function App() {
         if (error) {
           console.error('Supabase insert failed:', error);
           triggerNotification(`🛑 Fout bij invoegen: ${error.message}`);
+          // Revert optimistic insert
           setTasks(prev => prev.filter(t => t.id !== newId));
         }
       } catch (err) {
@@ -291,7 +434,9 @@ export default function App() {
   // Handle task deletion via Supabase
   const handleDeleteTask = async (taskId: string) => {
     setIsModalOpen(false);
+    
     const originalTasks = [...tasks];
+    // Optimistic deletion
     setTasks(prev => prev.filter(t => t.id !== taskId));
 
     try {
@@ -303,6 +448,7 @@ export default function App() {
       if (error) {
         console.error('Supabase delete failed:', error);
         triggerNotification(`🛑 Fout bij verwijderen: ${error.message}`);
+        // Revert optimistic delete
         setTasks(originalTasks);
       }
     } catch (err) {
@@ -310,54 +456,19 @@ export default function App() {
     }
   };
 
+  // If there's no active session, render the gorgeous Login screen
   if (!session) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans">
-        <div className="sm:mx-auto w-full max-w-md">
-          <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200">
-            <div className="flex justify-center mb-6">
-              <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black shadow-md shadow-blue-500/15 antialiased">
-                C
-              </div>
-            </div>
-            <h2 className="text-center text-2xl font-bold text-slate-800 tracking-tight mb-2">TeamPlanner Login</h2>
-            <p className="text-center text-xs text-slate-400 font-medium tracking-wide uppercase mb-6">Kies uw profiel om samen te werken</p>
-            
-            <form onSubmit={handleLocalInlineLoginSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Gebruiker</label>
-                <select
-                  value={localSelectedMember}
-                  onChange={(e) => setLocalSelectedMember(e.target.value)}
-                  className="mt-1 block w-full rounded-xl border border-slate-300 bg-white py-2.5 px-3 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 text-sm font-medium text-slate-700"
-                  required
-                >
-                  <option value="">-- Selecteer uw naam --</option>
-                  {teamMembers.map((m) => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="submit"
-                className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-xl shadow-md text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer transition-all"
-              >
-                Inloggen als Teamlid →
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} teamMembers={teamMembersState} />;
   }
 
   return (
     <div id="app-workspace" className="min-h-screen bg-slate-50 flex flex-col justify-between font-sans text-slate-900 selection:bg-blue-150">
       
+      {/* Dynamic Pop up notifications */}
       {notification && (
         <div id="ws-bell-notification" className="fixed bottom-5 right-5 bg-white border border-slate-200 text-slate-800 px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3 animate-fade-in max-w-sm ring-4 ring-blue-500/5">
           <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0 border border-blue-100">
-            <Bell className="w-4 h-4" />
+            <Bell className="w-4 h-4 animate-bounce" />
           </div>
           <div className="text-xs font-semibold leading-tight pr-2">
             {notification}
@@ -365,8 +476,11 @@ export default function App() {
         </div>
       )}
 
+      {/* Main Board Header: Matches Professional Polish high-contrast clean style */}
       <header id="main-header" className="h-20 bg-white border-b border-slate-200 px-4 sm:px-6 lg:px-8 flex items-center shadow-sm shrink-0 z-40">
         <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-4">
+          
+          {/* Logo & title info with team indicator */}
           <div id="branding" className="flex items-center gap-4 text-center sm:text-left">
             <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black shadow-md shadow-blue-500/15 antialiased">
               C
@@ -379,9 +493,19 @@ export default function App() {
                 <h1 className="text-xl font-bold text-slate-800 tracking-tight font-sans">
                   Collaborative Task Canvas
                 </h1>
-                <div id="ws-badge" className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider font-mono bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  synced
+                
+                {/* WS Status Indicator inside badge layout */}
+                <div id="ws-badge" className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider font-mono ${
+                  socketStatus === 'connected' 
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                    : socketStatus === 'connecting'
+                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                      : 'bg-rose-50 text-rose-700 border border-rose-200'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    socketStatus === 'connected' ? 'bg-emerald-500' : socketStatus === 'connecting' ? 'bg-amber-500' : 'bg-rose-500'
+                  }`} />
+                  {socketStatus === 'connected' ? 'synced' : socketStatus === 'connecting' ? 'connecting' : 'offline'}
                 </div>
               </div>
               <p className="text-[10px] text-slate-400 font-bold font-sans tracking-widest mt-0.5 uppercase">
@@ -390,48 +514,75 @@ export default function App() {
             </div>
           </div>
 
+          {/* Interactive Navigation tabs for switching view + User card */}
           <div id="tabs-and-profile" className="flex flex-wrap items-center gap-4">
+            
+            {/* View Switching Tab Pills */}
             <div id="tab-controls" className="bg-slate-100 p-1 rounded-xl border border-slate-200 flex items-center">
               <button
                 id="tab-agenda"
                 onClick={() => setActiveTab('agenda')}
                 className={`flex items-center gap-1.5 px-4.5 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
-                  activeTab === 'agenda' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-800'
+                  activeTab === 'agenda'
+                    ? 'bg-white text-blue-600 shadow-sm border border-slate-100'
+                    : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 <CalendarDays className="w-4 h-4" />
                 <span>Overzicht</span>
               </button>
+              
               <button
                 id="tab-analytics"
                 onClick={() => setActiveTab('analytics')}
                 className={`flex items-center gap-1.5 px-4.5 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
-                  activeTab === 'analytics' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-800'
+                  activeTab === 'analytics'
+                    ? 'bg-white text-blue-600 shadow-sm border border-slate-100'
+                    : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 <BarChart3 className="w-4 h-4" />
                 <span>Analytics</span>
               </button>
+
               <button
                 id="tab-archive"
                 onClick={() => setActiveTab('archive')}
                 className={`flex items-center gap-1.5 px-4.5 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
-                  activeTab === 'archive' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-800'
+                  activeTab === 'archive'
+                    ? 'bg-white text-blue-600 shadow-sm border border-slate-100'
+                    : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 <Archive className="w-4 h-4" />
                 <span>Archief</span>
               </button>
+
+              <button
+                id="tab-settings"
+                onClick={() => setActiveTab('settings')}
+                className={`flex items-center gap-1.5 px-4.5 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                  activeTab === 'settings'
+                    ? 'bg-white text-blue-600 shadow-sm border border-slate-100'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                <span>Instellingen</span>
+              </button>
             </div>
 
+            {/* User Session Profile display & logout option */}
             <div id="active-profile-card" className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1.5 pr-3 h-11">
               <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-black text-xs flex items-center justify-center shadow-sm">
                 {session?.initials}
               </div>
+              
               <div className="hidden sm:block">
                 <p className="text-xs font-bold text-slate-800 tracking-tight leading-none">{session?.name}</p>
                 <p className="text-[9px] text-slate-400 font-mono font-medium tracking-tight mt-0.5">INGELOGD</p>
               </div>
+
               <button
                 id="btn-logout"
                 onClick={handleLogout}
@@ -441,10 +592,12 @@ export default function App() {
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
+
           </div>
         </div>
       </header>
 
+      {/* Main Dynamic View Content Container */}
       <main id="main-view" className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === 'agenda' ? (
           <TeamPlanner
@@ -456,25 +609,34 @@ export default function App() {
             searchTerm={searchTerm}
             setSearchTerm={setSearchTerm}
             activeUsers={activeUsers}
+            teamMembers={teamMembersState}
           />
         ) : activeTab === 'analytics' ? (
-          <PlannerCanvas tasks={tasks} />
+          <PlannerCanvas tasks={tasks} teamMembers={teamMembersState} />
+        ) : activeTab === 'archive' ? (
+          <ArchiveScreen tasks={tasks} teamMembers={teamMembersState} />
         ) : (
-          <ArchiveScreen tasks={tasks} />
+          <TeamSettingsScreen
+            teamMembers={teamMembersState}
+            tasks={tasks}
+            onTriggerNotification={triggerNotification}
+          />
         )}
       </main>
 
-      <footer id="main-footer" className="h-10 bg-slate-800 text-white/50 px-6 flex items-center justify-between text-[10px] uppercase tracking-widest shrink-0 font-medium font-mono font-sans">
+      {/* Gorgeous Footer block */}
+      <footer id="main-footer" className="h-10 bg-slate-800 text-white/50 px-6 flex items-center justify-between text-[10px] uppercase tracking-widest shrink-0 font-medium font-mono font-sans font-sans">
         <div className="flex gap-4">
           <span>Real-time Sync Active</span>
           <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            Supabase Cloud Sync
+            <span className={`w-1.5 h-1.5 rounded-full ${socketStatus === 'connected' ? 'bg-emerald-400' : 'bg-blue-400'}`} />
+            {socketStatus === 'connected' ? 'WebSocket Presence Connected' : 'Supabase Cloud Sync'}
           </span>
         </div>
         <div>Canvas Editor v2.4.0</div>
       </footer>
 
+      {/* Task Creation & Edit Form Pop up overlay */}
       {isModalOpen && (
         <NieuweTaakModal
           onClose={() => setIsModalOpen(false)}
@@ -482,6 +644,7 @@ export default function App() {
           onDelete={handleDeleteTask}
           editingTask={editingTask}
           defaultDate={selectedDate}
+          teamMembers={teamMembersState}
         />
       )}
 
