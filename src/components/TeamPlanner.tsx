@@ -21,24 +21,48 @@ function parseTimeToDecimal(timeStr: string): number {
   return hours + (minutes || 0) / 60;
 }
 
-// Format "YYYY-MM-DD" to human readable date "20 apr 2026"
-function formatHumanDate(dateStr: string): string {
+// Format "YYYY-MM-DD" to include Day Name, Human Date and Week Number
+function getExtendedDateLabel(dateStr: string): string {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return dateStr;
-  
-  const formatter = new Intl.DateTimeFormat('nl-BE', {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+
+  // 1. Dag van de week ophalen en kapitaliseren
+  const dayNameFormatter = new Intl.DateTimeFormat('nl-BE', { weekday: 'long' });
+  const dayName = dayNameFormatter.format(d);
+  const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+
+  // 2. Humane datum (bijv. 20 apr 2026)
+  const dateFormatter = new Intl.DateTimeFormat('nl-BE', {
     day: 'numeric',
     month: 'short',
     year: 'numeric'
   });
-  return formatter.format(date);
+  const humanDate = dateFormatter.format(d);
+
+  // 3. ISO Weeknummer berekenen
+  const dateCopy = new Date(d.getTime());
+  dateCopy.setHours(0, 0, 0, 0);
+  dateCopy.setDate(dateCopy.getDate() + 3 - (dateCopy.getDay() + 6) % 7);
+  const week1 = new Date(dateCopy.getFullYear(), 0, 4);
+  const weekNum = 1 + Math.round(((dateCopy.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+
+  return `${capitalizedDay} ${humanDate} (Week ${weekNum})`;
 }
 
-// Get day offset YYYY-MM-DD
-function offsetDateStr(dateStr: string, offsetDays: number): string {
+// Verspring datum en sla weekenden automatisch over (vrijdag -> maandag)
+function offsetWorkDayStr(dateStr: string, direction: number): string {
   const d = new Date(dateStr);
-  d.setDate(d.getDate() + offsetDays);
+  d.setDate(d.getDate() + direction);
+
+  // Als we op zaterdag (6) belanden: +2 dagen naar maandag of -1 dag naar vrijdag
+  if (d.getDay() === 6) {
+    d.setDate(d.getDate() + (direction === 1 ? 2 : -1));
+  }
+  // Als we op zondag (0) belanden: +1 dag naar maandag of -2 dagen naar vrijdag
+  if (d.getDay() === 0) {
+    d.setDate(d.getDate() + (direction === 1 ? 1 : -2));
+  }
   return d.toISOString().split('T')[0];
 }
 
@@ -63,9 +87,9 @@ export default function TeamPlanner({
   teamMembers,
 }: TeamPlannerProps) {
   
-  // Hours array from 08:00 to 17:00
-  const hours = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
-  const totalSlots = hours.length - 1; // 9 hourly blocks
+  // Aangepaste urenreeks: van 08:00 tot 16:00 (sluit perfect aan op de 15-minuten restrictie)
+  const hours = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'];
+  const totalSlots = hours.length - 1; // 8 uursblokken
 
   // Filter tasks belonging only to the selected date
   const tasksForDay = tasks.filter(t => t.date === selectedDate);
@@ -81,33 +105,30 @@ export default function TeamPlanner({
     return nameMatch || initialsMatch || hasMatchingTask || searchTerm === '';
   });
 
-  // Calculate sum of active tasks per hour slot (Dutch spreadsheet summary row)
+  // Calculate sum of active tasks per hour slot
   const slotSumCounts = Array(totalSlots).fill(0);
   tasksForDay.forEach(task => {
     const tStart = parseTimeToDecimal(task.startTime);
     const tEnd = parseTimeToDecimal(task.endTime);
     
-    // Check which hourly blocks this task overlaps with
     for (let i = 0; i < totalSlots; i++) {
        const slotStart = 8 + i;
        const slotEnd = slotStart + 1;
-       // Overlaps if it overlaps at least partly
        if (tStart < slotEnd && tEnd > slotStart) {
          slotSumCounts[i]++;
        }
     }
   });
 
-  // Calculate coordinates (%) of task bar within 08:00 to 17:00 view
+  // Calculate coordinates (%) of task bar within 08:00 to 16:00 view
   const getTaskLayout = (task: Task) => {
     const earliestHour = 8;
-    const latestHour = 17;
-    const viewSpan = latestHour - earliestHour; // 9 hours
+    const latestHour = 16;
+    const viewSpan = latestHour - earliestHour; // 8 hours
     
     const taskStart = parseTimeToDecimal(task.startTime);
     const taskEnd = parseTimeToDecimal(task.endTime);
     
-    // Clamp values
     const visibleStart = Math.max(earliestHour, Math.min(latestHour, taskStart));
     const visibleEnd = Math.max(earliestHour, Math.min(latestHour, taskEnd));
     const span = visibleEnd - visibleStart;
@@ -129,22 +150,22 @@ export default function TeamPlanner({
         <div id="date-navigation" className="flex items-center gap-1.5 bg-slate-100 rounded-xl p-1 border border-slate-200">
           <button
             id="btn-day-prev"
-            onClick={() => setSelectedDate(offsetDateStr(selectedDate, -1))}
+            onClick={() => setSelectedDate(offsetWorkDayStr(selectedDate, -1))}
             className="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-white active:bg-slate-150 transition-all cursor-pointer"
-            title="Vorige Dag"
+            title="Vorige Werkdag"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           
-          <span id="label-selected-date" className="text-sm font-bold text-slate-800 px-4 min-w-[140px] text-center tracking-tight">
-            {formatHumanDate(selectedDate)}
+          <span id="label-selected-date" className="text-sm font-bold text-slate-800 px-4 min-w-[240px] text-center tracking-tight">
+            {getExtendedDateLabel(selectedDate)}
           </span>
 
           <button
             id="btn-day-next"
-            onClick={() => setSelectedDate(offsetDateStr(selectedDate, 1))}
+            onClick={() => setSelectedDate(offsetWorkDayStr(selectedDate, 1))}
             className="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-white active:bg-slate-150 transition-all cursor-pointer"
-            title="Volgende Dag"
+            title="Volgende Werkdag"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
@@ -191,7 +212,7 @@ export default function TeamPlanner({
 
           <button
             id="btn-trigger-nieuw-taak"
-            onClick={() => onAddTask('', '09:00')}
+            onClick={() => onAddTask('', '08:00')}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-sm px-4.5 py-2.5 rounded-xl shadow-lg shadow-blue-500/10 cursor-pointer transition-all"
           >
             <Plus className="w-4 h-4" />
@@ -206,12 +227,10 @@ export default function TeamPlanner({
           
           {/* Timeline columns Header */}
           <div id="grid-header-row" className="flex border-b border-slate-200 text-slate-400 text-[10px] font-bold uppercase tracking-wider bg-slate-50/50">
-            {/* Team member ID side cell */}
             <div className="w-52 py-1.5 px-3 text-slate-500 border-r border-slate-200 font-sans flex items-center">
               TEAMLID
             </div>
-            {/* Hourly columns */}
-            <div className="flex-1 grid grid-cols-9 relative">
+            <div className="flex-1 grid grid-cols-8 relative">
               {hours.slice(0, -1).map((hour, idx) => (
                 <div
                   key={idx}
@@ -249,9 +268,9 @@ export default function TeamPlanner({
                   </div>
 
                   {/* Horizontal visual slots */}
-                  <div id={`row-slots-${member.id}`} className="flex-1 grid grid-cols-9 relative p-1.5 items-center bg-transparent">
+                  <div id={`row-slots-${member.id}`} className="flex-1 grid grid-cols-8 relative p-1.5 items-center bg-transparent">
                     {/* Vertical guideline divider overlays */}
-                    <div className="absolute inset-0 grid grid-cols-9 pointer-events-none">
+                    <div className="absolute inset-0 grid grid-cols-8 pointer-events-none">
                       {Array(totalSlots).fill(0).map((_, idx) => (
                         <div key={idx} className="border-r border-slate-100/50 h-full" />
                       ))}
@@ -263,7 +282,7 @@ export default function TeamPlanner({
                       onClick={(e) => {
                         const rect = e.currentTarget.getBoundingClientRect();
                         const clickX = e.clientX - rect.left;
-                        const colWidth = rect.width / 9;
+                        const colWidth = rect.width / 8;
                         const clickedCol = Math.floor(clickX / colWidth);
                         const hourVal = 8 + clickedCol;
                         const hourStr = `${hourVal < 10 ? '0' : ''}${hourVal}:00`;
@@ -285,7 +304,7 @@ export default function TeamPlanner({
                             id={`task-bar-${task.id}`}
                             key={task.id}
                             onClick={(e) => {
-                              e.stopPropagation(); // Avoid triggering empty slot click handler
+                              e.stopPropagation();
                               onEditTask(task);
                             }}
                             style={{ left: layout.left, width: layout.width }}
@@ -315,12 +334,12 @@ export default function TeamPlanner({
             )}
           </div>
 
-          {/* Aggregate sum bottom footer row (matches Dutch spreadsheet summary columns) */}
+          {/* Aggregate sum bottom footer row */}
           <div id="grid-summary-row" className="flex border-t border-slate-200 bg-slate-50/70 font-mono text-[10px] font-bold text-slate-700">
             <div className="w-52 py-1.5 px-3 text-slate-700 border-r border-slate-200 font-sans flex items-center min-h-[38px]">
               🔒 TOTAAL SCHEMATISCH
             </div>
-            <div className="flex-1 grid grid-cols-9">
+            <div className="flex-1 grid grid-cols-8">
               {slotSumCounts.map((count, idx) => (
                 <div
                   key={idx}
@@ -357,7 +376,7 @@ export default function TeamPlanner({
         </div>
         
         <div className="text-slate-500 text-[11px] font-mono italic">
-          💡 Klik op een lege cel of sleep om taken aan te maken. Klik op bestaande taken om ze te bewerken of deleten.
+          💡 Klik op een lege cel om taken aan te maken. Klik op bestaande taken om ze te bewerken of te verwijderen. Weekenddagen worden automatisch overgeslagen.
         </div>
       </div>
     </div>
