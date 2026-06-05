@@ -50,14 +50,22 @@ function taskToDb(task: Partial<Task>): any {
 }
 
 export default function App() {
-  const [session, setSession] = useState<UserSession | null>(null);
+  const [session, setSession] = useState<UserSession null |>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [teamMembersState, setTeamMembersState] = useState<TeamMember[]>(initialTeamMembers);
   const [activeTab, setActiveTab] = useState<'agenda' | 'analytics' | 'archive' | 'settings'>('agenda');
-  const [selectedDate, setSelectedDate] = useState<string>('2026-05-26');
+
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const d = new Date();
+    const jjjj = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${jjjj}-${mm}-${dd}`;
+  });
+
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editingTask, setEditingTask] = useState<Task null |>(null);
   const [defaultTaskMemberId, setDefaultTaskMemberId] = useState<string>('');
   const [defaultTaskTime, setDefaultTaskTime] = useState<string>('09:00');
   const [notification, setNotification] = useState<string | null>(null);
