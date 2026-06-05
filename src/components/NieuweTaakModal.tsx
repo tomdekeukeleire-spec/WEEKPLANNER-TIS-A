@@ -23,6 +23,19 @@ function getISOWeek(dateStr: string): number {
   return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 }
 
+// Genereer tijden van 08:00 tot 16:00 per 15 minuten
+const ALLOWED_TIMES = [
+  '08:00', '08:15', '08:30', '08:45',
+  '09:00', '09:15', '09:30', '09:45',
+  '10:00', '10:15', '10:30', '10:45',
+  '11:00', '11:15', '11:30', '11:45',
+  '12:00', '12:15', '12:30', '12:45',
+  '13:00', '13:15', '13:30', '13:45',
+  '14:00', '14:15', '14:30', '14:45',
+  '15:00', '15:15', '15:30', '15:45',
+  '16:00'
+];
+
 export default function NieuweTaakModal({
   onClose,
   onSave,
@@ -39,8 +52,8 @@ export default function NieuweTaakModal({
   );
   const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Training' | 'Meeting'>('Todo');
   const [description, setDescription] = useState<string>('');
-  const [startTime, setStartTime] = useState<string>('09:00');
-  const [endTime, setEndTime] = useState<string>('12:00');
+  const [startTime, setStartTime] = useState<string>('08:00');
+  const [endTime, setEndTime] = useState<string>('09:00');
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
 
   // Auto-calculate week based on date
@@ -82,6 +95,22 @@ export default function NieuweTaakModal({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+
+    // 1. Weekend-beveiliging (0 = Zondag, 6 = Zaterdag)
+    const dateParts = date.split('-');
+    if (dateParts.length === 3) {
+      const y = parseInt(dateParts[0], 10);
+      const m = parseInt(dateParts[1], 10) - 1;
+      const d = parseInt(dateParts[2], 10);
+      const localDate = new Date(y, m, d);
+      const dayOfWeek = localDate.getDay();
+
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        alert('Plannen in het weekend is niet toegestaan!');
+        return;
+      }
+    }
+
     if (!description.trim()) {
       alert('Vul a.u.b. een omschrijving in.');
       return;
@@ -116,7 +145,7 @@ export default function NieuweTaakModal({
         id="modal-card"
         className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col transform transition-all animate-scale-up"
       >
-        {/* Header Block: Professional Polish white header with light borders */}
+        {/* Header Block */}
         <div id="modal-header" className="flex justify-between items-center p-6 border-b border-slate-100 bg-white shrink-0">
           <div className="flex items-center gap-3 bg-transparent">
             <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-base">
@@ -135,7 +164,7 @@ export default function NieuweTaakModal({
           </button>
         </div>
 
-        {/* Form elements styled with light clean grey slate inputs, standard spacing */}
+        {/* Form elements */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4 bg-transparent">
             {/* Datum */}
@@ -188,7 +217,6 @@ export default function NieuweTaakModal({
             </select>
           </div>
 
-          {/* Omschrijving */}
           {/* Onderwerp */}
           <div id="field-subject" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">
@@ -207,6 +235,7 @@ export default function NieuweTaakModal({
             </select>
           </div>
 
+          {/* Omschrijving */}
           <div id="field-description" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">
               OMSCHRIJVING
@@ -223,36 +252,40 @@ export default function NieuweTaakModal({
           </div>
 
           <div className="grid grid-cols-2 gap-4 bg-transparent">
-            {/* Starttijd */}
+            {/* Starttijd (Dropdown) */}
             <div id="field-start" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-blue-500" /> START
               </label>
-              <input
-                id="input-task-start"
-                type="time"
-                step="900" // 15 mins block increments
+              <select
+                id="select-task-start"
                 required
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-4 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-shadow"
-              />
+                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-4 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-shadow cursor-pointer"
+              >
+                {ALLOWED_TIMES.map((time) => (
+                  <option key={`start-${time}`} value={time}>{time}</option>
+                ))}
+              </select>
             </div>
 
-            {/* Eindtijd */}
+            {/* Eindtijd (Dropdown) */}
             <div id="field-end" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-blue-500" /> EINDE
               </label>
-              <input
-                id="input-task-end"
-                type="time"
-                step="900"
+              <select
+                id="select-task-end"
                 required
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-4 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 cursor-pointer transition-shadow"
-               />
+                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-4 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-shadow cursor-pointer"
+              >
+                {ALLOWED_TIMES.map((time) => (
+                  <option key={`end-${time}`} value={time}>{time}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -283,7 +316,7 @@ export default function NieuweTaakModal({
             </select>
           </div>
 
-          {/* Submit Actions Area: Professional Polish shaded background panel */}
+          {/* Submit Actions Area */}
           <div id="modal-actions" className="pt-5 mt-4 flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 -mx-6 -mb-6 p-6">
             {editingTask && onDelete ? (
               <button
