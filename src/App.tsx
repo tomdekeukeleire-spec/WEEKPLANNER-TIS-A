@@ -13,7 +13,6 @@ import {
   CalendarDays, 
   BarChart3, 
   Archive, 
-  Bell, 
   Settings 
 } from 'lucide-react';
 
@@ -176,7 +175,6 @@ export default function App() {
 
   const handleAddTaskTrigger = (memberId: string, initialHour?: string) => {
     setEditingTask(null);
-    // Als superuser klikt, standaard de eerste medewerker selecteren ipv de eigen superuser-id
     const targetId = memberId || (session?.role === 'Superuser' ? teamMembersState[0]?.id : session?.memberId) || '';
     setDefaultTaskMemberId(targetId);
     setDefaultTaskTime(initialHour || '09:00');
