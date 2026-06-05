@@ -313,7 +313,7 @@ export default function App() {
         ) : activeTab === 'analytics' ? (
           <PlannerCanvas tasks={tasks} teamMembers={teamMembersState} />
         ) : activeTab === 'archive' ? (
-          <ArchiveScreen tasks={tasks} teamMembers={teamMembersState} />
+          <ArchiveScreen tasks={tasks} teamMembers={teamMembersState} onEditTask={handleEditTaskTrigger} />
         ) : activeTab === 'settings' && session?.role === 'Superuser' ? (
           <TeamSettingsScreen teamMembers={teamMembersState} tasks={tasks} onTriggerNotification={triggerNotification} />
         ) : (
