@@ -6,23 +6,22 @@ import {
   ArrowUpDown, 
   ArrowUp, 
   ArrowDown, 
-  Filter, 
   X, 
   Layers,
   Calendar,
-  Clock,
-  Briefcase
+  Clock
 } from 'lucide-react';
 
 interface ArchiveScreenProps {
   tasks: Task[];
   teamMembers: TeamMember[];
+  onEditTask: (task: Task) => void; // Toegevoegd om verbinding te maken met de pop-up
 }
 
 type SortField = 'date' | 'week' | 'member' | 'subject' | 'description' | 'startTime' | 'endTime' | 'priority';
 type SortOrder = 'asc' | 'desc' | 'none';
 
-export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps) {
+export default function ArchiveScreen({ tasks, teamMembers, onEditTask }: ArchiveScreenProps) {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterMemberId, setFilterMemberId] = useState<string>('all');
   const [filterSubject, setFilterSubject] = useState<string>('all');
@@ -123,7 +122,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
           valB = b.endTime;
           break;
         case 'priority':
-          // Prioritize order: Critical > High > Medium > Low
           const pLevels = { [Priority.CRITICAL]: 4, [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
           valA = pLevels[a.priority] || 0;
           valB = pLevels[b.priority] || 0;
@@ -147,7 +145,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
     }
   };
 
-  // Helper render sort arrow indicator 
   const renderSortIndicator = (field: SortField) => {
     if (sortField !== field || sortOrder === 'none') {
       return <ArrowUpDown className="w-3.5 h-3.5 text-slate-350 shrink-0" />;
@@ -159,7 +156,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
     );
   };
 
-  // Reset all filters safely
   const handleClearFilters = () => {
     setSearchTerm('');
     setFilterMemberId('all');
@@ -169,9 +165,7 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
     setSortOrder('desc');
   };
 
-  // Download / Export raw data to a clean CSV
   const handleDownloadCSV = () => {
-    // 1. Columns headers declaration
     const headers = [
       'Datum',
       'Week',
@@ -183,7 +177,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
       'Prioriteit'
     ];
 
-    // Helper utility to safely escape custom characters for standard CSV compliance
     const escapeCSV = (val: string | number | undefined): string => {
       if (val === undefined || val === null) return '';
       const str = String(val);
@@ -193,7 +186,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
       return str;
     };
 
-    // 2. Map dataset rows
     const rows = sortedTasks.map(task => [
       task.date,
       task.week,
@@ -205,17 +197,14 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
       task.priority
     ]);
 
-    // 3. Assemble CSV text block
     const csvContent = [
       headers.join(','),
       ...rows.map(row => row.map(escapeCSV).join(','))
     ].join('\r\n');
 
-    // 4. Prefix with UTF-8 BOM (\uFEFF) so Excel opens it with right character sets
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     
-    // 5. Trigger physical browser download anchor link
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', `taken_archief_${new Date().toISOString().split('T')[0]}.csv`);
@@ -235,11 +224,10 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
             Takenarchief & Historiek Spreadsheet
           </h2>
           <p className="text-xs text-slate-400 mt-1 font-medium">
-            Beheer en exporteer de volledige database van alle ingeplande taken en agenda items.
+            Beheer en exporteer de volledige database. <span className="text-slate-600 font-bold">💡 Klik op een rij om een taak aan te passen of definitief te verwijderen.</span>
           </p>
         </div>
 
-        {/* Buttons / Controls layer */}
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             id="btn-export-csv"
@@ -257,7 +245,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
       <div id="archive-filters" className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4">
         <div id="filters-flex" className="flex flex-col lg:flex-row gap-4 items-center justify-between">
           
-          {/* Main search term input */}
           <div className="relative w-full lg:max-w-xs shrink-0">
             <input
               id="input-archive-search"
@@ -278,10 +265,8 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
             )}
           </div>
 
-          {/* Quick Dropdown selects */}
           <div className="flex flex-wrap items-center gap-3 w-full justify-end">
             
-            {/* Medewerker Filter option */}
             <div className="flex items-center gap-1.5 text-xs text-slate-550">
               <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider hidden sm:inline">TEAMLID</span>
               <select
@@ -297,7 +282,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
               </select>
             </div>
 
-            {/* Onderwerp Filter option */}
             <div className="flex items-center gap-1.5 text-xs text-slate-550">
               <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider hidden sm:inline">ONDERWERP</span>
               <select
@@ -314,7 +298,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
               </select>
             </div>
 
-            {/* Prioriteit Filter option */}
             <div className="flex items-center gap-1.5 text-xs text-slate-550">
               <span className="font-bold text-slate-400 text-[10px] uppercase tracking-wider hidden sm:inline">PRIORITEIT</span>
               <select
@@ -346,7 +329,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
           </div>
         </div>
 
-        {/* Counter Summary badge row */}
         <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
           <span>HUIDIGE SELECTIE</span>
           <span className="text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full font-mono">
@@ -361,7 +343,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/75 border-b border-slate-250 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider select-none font-sans">
-                {/* 1. Date */}
                 <th 
                   onClick={() => handleSort('date')}
                   className="py-3 px-4 border-r border-slate-100 cursor-pointer hover:bg-slate-100 hover:text-slate-700 transition-colors"
@@ -372,7 +353,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
                   </div>
                 </th>
                 
-                {/* 2. Week */}
                 <th 
                   onClick={() => handleSort('week')}
                   className="py-3 px-4 border-r border-slate-100 cursor-pointer hover:bg-slate-100 hover:text-slate-700 transition-colors w-[100px]"
@@ -383,7 +363,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
                   </div>
                 </th>
 
-                {/* 3. Assigned to */}
                 <th 
                   onClick={() => handleSort('member')}
                   className="py-3 px-4 border-r border-slate-100 cursor-pointer hover:bg-slate-100 hover:text-slate-700 transition-colors"
@@ -394,7 +373,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
                   </div>
                 </th>
 
-                {/* 4. Subject */}
                 <th 
                   onClick={() => handleSort('subject')}
                   className="py-3 px-4 border-r border-slate-100 cursor-pointer hover:bg-slate-100 hover:text-slate-700 transition-colors w-[120px]"
@@ -405,7 +383,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
                   </div>
                 </th>
 
-                {/* 5. Description */}
                 <th 
                   onClick={() => handleSort('description')}
                   className="py-3 px-4 border-r border-slate-100 cursor-pointer hover:bg-slate-100 hover:text-slate-700 transition-colors"
@@ -416,7 +393,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
                   </div>
                 </th>
 
-                {/* 6. Start time */}
                 <th 
                   onClick={() => handleSort('startTime')}
                   className="py-3 px-4 border-r border-slate-100 cursor-pointer hover:bg-slate-100 hover:text-slate-700 transition-colors w-[90px]"
@@ -427,7 +403,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
                   </div>
                 </th>
 
-                {/* 7. End time */}
                 <th 
                   onClick={() => handleSort('endTime')}
                   className="py-3 px-4 border-r border-slate-100 cursor-pointer hover:bg-slate-100 hover:text-slate-700 transition-colors w-[90px]"
@@ -438,7 +413,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
                   </div>
                 </th>
 
-                {/* 8. Priority */}
                 <th 
                   onClick={() => handleSort('priority')}
                   className="py-3 px-4 cursor-pointer hover:bg-slate-100 hover:text-slate-700 transition-colors w-[130px]"
@@ -451,7 +425,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
               </tr>
             </thead>
 
-            {/* Table body content */}
             <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700 font-sans">
               {sortedTasks.length === 0 ? (
                 <tr>
@@ -468,7 +441,6 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
                   const subject = getTaskSubject(task);
                   const member = teamMembers.find(m => m.id === task.teamMemberId);
                   
-                  // Helper style classes for nice visual tags
                   const subjectBadgeClass = 
                     subject === 'Verlof' ? 'bg-rose-50 text-rose-700 border border-rose-100' :
                     subject === 'Training' ? 'bg-purple-50 text-purple-700 border border-purple-100' :
@@ -482,77 +454,13 @@ export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps
                     'bg-emerald-150 text-emerald-850';
 
                   return (
+                    /* VERANDERD: onClick EN EXTRA HOVER STYLE TOEGEVOEGD */
                     <tr 
                       key={task.id} 
-                      className={`hover:bg-slate-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/15' : ''}`}
+                      onClick={() => onEditTask(task)}
+                      className={`cursor-pointer hover:bg-slate-100/80 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/15' : ''}`}
                     >
                       {/* Date */}
                       <td className="py-2.5 px-4 font-mono font-bold text-slate-500 border-r border-slate-50">
                         <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-slate-350 shrink-0" />
-                          <span>{task.date}</span>
-                        </div>
-                      </td>
-
-                      {/* Week */}
-                      <td className="py-2.5 px-4 font-mono text-slate-450 border-r border-slate-50">
-                        Wk {task.week}
-                      </td>
-
-                      {/* Assigned to */}
-                      <td className="py-2.5 px-4 border-r border-slate-50">
-                        {member ? (
-                          <div className="flex items-center gap-2">
-                            <span className={`w-5 h-5 rounded-md text-[9px] font-black text-white flex items-center justify-center shrink-0 ${member.color.split(' ')[0]}`}>
-                              {member.initials}
-                            </span>
-                            <span className="truncate font-semibold text-slate-800">{member.name}</span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 italic">Onbekend</span>
-                        )}
-                      </td>
-
-                      {/* Subject */}
-                      <td className="py-2.5 px-4 border-r border-slate-50">
-                        <span className={`inline-block px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider leading-none ${subjectBadgeClass}`}>
-                          {subject}
-                        </span>
-                      </td>
-
-                      {/* Description */}
-                      <td className="py-2.5 px-4 border-r border-slate-50 font-medium text-slate-800 max-w-[280px] truncate" title={task.description}>
-                        {task.description}
-                      </td>
-
-                      {/* Start Time */}
-                      <td className="py-2.5 px-4 font-mono text-slate-500 border-r border-slate-50">
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-slate-350" />
-                          <span>{task.startTime}</span>
-                        </div>
-                      </td>
-
-                      {/* End Time */}
-                      <td className="py-2.5 px-4 font-mono text-slate-500 border-r border-slate-50">
-                        {task.endTime}
-                      </td>
-
-                      {/* Priority */}
-                      <td className="py-2.5 px-4 font-semibold">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wide leading-none ${priorityBadgeClass}`}>
-                          {task.priority === Priority.CRITICAL ? 'Urgent' : task.priority.toLowerCase()}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-    </div>
-  );
-}
+                          <Calendar className="w-3.5 h-3.5
