@@ -1,7 +1,7 @@
-import { useState, useMemo, FormEvent } from 'react';
+import { useState, FormEvent } from 'react';
 import { TeamMember, Task } from '../types';
 import { supabase } from '../supabase';
-import { Users, UserPlus, Trash2, ShieldAlert, Sparkles, Check } from 'lucide-react';
+import { Users, UserPlus, Trash2, ShieldAlert, Sparkles, Check, Mail } from 'lucide-react';
 
 interface TeamSettingsScreenProps {
   teamMembers: TeamMember[];
@@ -30,6 +30,7 @@ export default function TeamSettingsScreen({
 }: TeamSettingsScreenProps) {
   const [name, setName] = useState('');
   const [initials, setInitials] = useState('');
+  const [email, setEmail] = useState(''); // Nieuwe state voor e-mail
   const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0].value);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -57,6 +58,7 @@ export default function TeamSettingsScreen({
 
     const trimmedName = name.trim();
     const trimmedInitials = initials.trim().toUpperCase();
+    const trimmedEmail = email.trim().toLowerCase();
 
     if (!trimmedName) {
       setError('Naam is verplicht.');
@@ -66,23 +68,31 @@ export default function TeamSettingsScreen({
       setError('Initialen zijn verplicht.');
       return;
     }
+    if (!trimmedEmail) {
+      setError('E-mailadres is verplicht voor Google-inlog authenticatie.');
+      return;
+    }
 
-    // Check duplicates
+    // Check duplicates op initialen én e-mailadres
     if (teamMembers.some((m) => m.initials === trimmedInitials)) {
       setError(`Er bestaat al een teamlid met initialen "${trimmedInitials}".`);
+      return;
+    }
+    if (teamMembers.some((m) => (m as any).email?.toLowerCase() === trimmedEmail)) {
+      setError(`Dit e-mailadres (${trimmedEmail}) is al gekoppeld aan een ander teamlid.`);
       return;
     }
 
     setSubmitting(true);
 
-    // Generate numeric-like ID or UUID
     const id = (Math.max(0, ...teamMembers.map((m) => Number(m.id) || 0)) + 1).toString();
 
-    const newMember: TeamMember = {
+    const newMember: any = {
       id,
       name: trimmedName,
       initials: trimmedInitials,
       color: selectedColor,
+      email: trimmedEmail, // Wordt nu netjes meegestuurd naar Supabase
     };
 
     try {
@@ -92,12 +102,13 @@ export default function TeamSettingsScreen({
 
       if (dbErr) {
         console.error('Failed to insert member to Supabase:', dbErr);
-        setError(`Fout bij toevoegen: ${dbErr.message}`);
+        setError(`Fout bij toevoegen: ${dbErr.message}. Controleer of de kolom 'email' bestaat in Supabase.`);
       } else {
         setName('');
         setInitials('');
+        setEmail('');
         setSelectedColor(PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)].value);
-        onTriggerNotification(`🚀 "${trimmedName}" (${trimmedInitials}) is toegevoegd aan het team!`);
+        onTriggerNotification(`🚀 "${trimmedName}" is toegevoegd en kan nu veilig inloggen met ${trimmedEmail}!`);
       }
     } catch (err: any) {
       setError(`Netwerkfout: ${err.message || err}`);
@@ -110,11 +121,9 @@ export default function TeamSettingsScreen({
     const member = teamMembers.find((m) => m.id === memberId);
     if (!member) return;
 
-    // Count tasks assigned to this active user
     const memberTasksCount = tasks.filter((t) => t.teamMemberId === memberId).length;
-
     const taskCountWarning = memberTasksCount > 0 
-      ? `\n\n⚠️ LET OP: Dit teamlid heeft momenteel ${memberTasksCount} taak/taken toegewezen. De taken blijven in het systeem staan.`
+      ? `\n\n⚠️ LET OP: Dit teamlid heeft momente0l ${memberTasksCount} taak/taken toegewezen. De taken blijven in het systeem staan.`
       : '';
 
     const confirmed = window.confirm(
@@ -140,15 +149,14 @@ export default function TeamSettingsScreen({
     }
   };
 
-  // Helper to count active tasks assigned to each member
   const getTaskCount = (memberId: string) => {
     return tasks.filter((t) => t.teamMemberId === memberId).length;
   };
 
   return (
-    <div id="settings-screen-container" className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
+    <div id="settings-screen-container" className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-7xl mx-auto font-sans">
       
-      {/* Dynamic Member Adding Panel */}
+      {/* Panel: Nieuw lid toevoegen */}
       <div id="add-member-panel" className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-fit">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 flex-shrink-0">
@@ -156,7 +164,7 @@ export default function TeamSettingsScreen({
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-800 tracking-tight">Nieuw Teamlid</h2>
-            <p className="text-xs text-slate-400 font-medium">Snel toevoegen aan de lijst</p>
+            <p className="text-xs text-slate-400 font-medium">Toegang verlenen via TVH-mail</p>
           </div>
         </div>
 
@@ -170,7 +178,6 @@ export default function TeamSettingsScreen({
           <div className="space-y-1">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block">Volledige Naam</label>
             <input
-              id="input-member-name"
               type="text"
               placeholder="Bijv. Jan Peeters"
               value={name}
@@ -181,9 +188,8 @@ export default function TeamSettingsScreen({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block">Initialen (Log-In ID)</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block">Initialen (ID)</label>
             <input
-              id="input-member-initials"
               type="text"
               maxLength={4}
               placeholder="Bijv. JP"
@@ -194,12 +200,26 @@ export default function TeamSettingsScreen({
             />
           </div>
 
+          {/* NIEUW: EINVOERVELD VOOR E-MAILADRES */}
+          <div className="space-y-1">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block flex items-center gap-1">
+              <Mail className="w-3.5 h-3.5 text-slate-400" /> TVH E-mailadres (Voor Inlog)
+            </label>
+            <input
+              type="email"
+              placeholder="jan.peeters@tvh.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:bg-white transition-all font-medium"
+              required
+            />
+          </div>
+
           <div className="space-y-2">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block">Kleur & Thema</label>
             <div className="grid grid-cols-6 gap-2">
               {PRESET_COLORS.map((clr) => (
                 <button
-                  id={`btn-clr-${clr.label.replace(/\s+/g, '')}`}
                   key={clr.value}
                   type="button"
                   onClick={() => setSelectedColor(clr.value)}
@@ -218,19 +238,7 @@ export default function TeamSettingsScreen({
             </div>
           </div>
 
-          {/* User Preview */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-extrabold text-white shadow-inner flex-shrink-0 ${selectedColor.split(' ')[0]}`}>
-              {initials || '?'}
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-700">Voorvertoning profiel</p>
-              <p className="text-xs text-slate-400 font-medium truncate max-w-[180px]">{name || 'Nog geen naam ingevuld'}</p>
-            </div>
-          </div>
-
           <button
-            id="btn-add-member-submit"
             type="submit"
             disabled={submitting}
             className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-blue-300 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-blue-500/10 transition-all cursor-pointer text-sm"
@@ -240,7 +248,7 @@ export default function TeamSettingsScreen({
         </form>
       </div>
 
-      {/* Dynamic Members Team List Table */}
+      {/* Tabel: Teamleden Overzicht */}
       <div id="members-list-panel" className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm lg:col-span-2">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -249,7 +257,7 @@ export default function TeamSettingsScreen({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-800 tracking-tight">Teamleden ({teamMembers.length})</h2>
-              <p className="text-xs text-slate-400 font-medium">Ingerichte profielen voor de TIS-A planner</p>
+              <p className="text-xs text-slate-400 font-medium">Beheer wie toegang heeft tot het portaal</p>
             </div>
           </div>
         </div>
@@ -259,7 +267,7 @@ export default function TeamSettingsScreen({
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 uppercase tracking-wider text-[10px] font-bold">
                 <th className="py-3 px-4">Lid</th>
-                <th className="py-3 px-4">Initialen (LogID)</th>
+                <th className="py-3 px-4">E-mailadres</th>
                 <th className="py-3 px-4 text-center">Open taken</th>
                 <th className="py-3 px-4 text-right">Acties</th>
               </tr>
@@ -275,8 +283,9 @@ export default function TeamSettingsScreen({
                       </div>
                       <span className="font-semibold text-slate-800">{member.name}</span>
                     </td>
-                    <td className="py-3.5 px-4 font-mono font-bold text-slate-500">
-                      {member.initials}
+                    {/* NIEUWE KOLOM: TOONT HET GEKOPPELDE E-MAILADRES */}
+                    <td className="py-3.5 px-4 font-medium text-slate-500 text-xs">
+                      {(member as any).email || <span className="text-slate-300 italic">Geen mail ingevuld</span>}
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
@@ -289,7 +298,6 @@ export default function TeamSettingsScreen({
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <button
-                        id={`btn-delete-member-${member.id}`}
                         onClick={() => handleDeleteMember(member.id)}
                         className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer inline-flex items-center"
                         title="Verwijder dit teamlid uit het systeem"
@@ -315,7 +323,7 @@ export default function TeamSettingsScreen({
         <div className="mt-6 flex gap-3 p-4 bg-amber-50/50 border border-amber-200/60 rounded-xl text-amber-800 text-xs leading-relaxed">
           <Sparkles className="w-5 h-5 flex-shrink-0 text-amber-500 mt-0.5" />
           <div>
-            <span className="font-bold">Hoe werkt de planning?</span> Elke gebruiker logt in met zijn of haar gemaakte profiel. Zodra u een teamlid verwijdert of toevoegt, synchroniseert deze Direct in Real-Time voor iedereen die met Supabase is verbonden. Taken die al aan een verwijderd lid waren toegewezen, blijven zichtbaar in het archief en de database.
+            <span className="font-bold">Hoe werkt de Google-koppeling?</span> Wanneer een collega inlogt met zijn TVH-account via Google, controleert de app direct of de inlog-mail exact overeenkomt met de mail in deze tabel. Alleen als er een match is, krijgt de collega direct toegang tot zijn of haar eigen planning.
           </div>
         </div>
 
