@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { teamMembers, PRIORITY_COLORS } from '../constants';
-import { Task, Priority } from '../types';
+import { PRIORITY_COLORS } from '../constants';
+import { Task, Priority, TeamMember } from '../types';
 import {
   Layers,
   Activity,
@@ -23,6 +23,7 @@ import {
 
 interface PlannerCanvasProps {
   tasks: Task[];
+  teamMembers: TeamMember[];
 }
 
 interface WidgetConfig {
@@ -34,7 +35,7 @@ interface WidgetConfig {
   filterPriority: string; // 'all' or specific
 }
 
-export default function PlannerCanvas({ tasks }: PlannerCanvasProps) {
+export default function PlannerCanvas({ tasks, teamMembers }: PlannerCanvasProps) {
   // --- 1. Global Filter States ---
   const [dashSearch, setDashSearch] = useState<string>('');
   const [personFilter, setPersonFilter] = useState<string>('all');
