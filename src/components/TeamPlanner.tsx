@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { teamMembers, PRIORITY_COLORS } from '../constants';
+import { PRIORITY_COLORS } from '../constants';
 import { Task, TeamMember } from '../types';
 import { ChevronLeft, ChevronRight, Plus, Search, HelpCircle, AlertCircle, Circle, User } from 'lucide-react';
 
@@ -12,6 +12,7 @@ interface TeamPlannerProps {
   searchTerm: string;
   setSearchTerm: (term: string) => void;
   activeUsers: { memberId: string; name: string; initials: string }[];
+  teamMembers: TeamMember[];
 }
 
 // Convert "HH:MM" string to fractional hours decimal
@@ -59,6 +60,7 @@ export default function TeamPlanner({
   searchTerm,
   setSearchTerm,
   activeUsers,
+  teamMembers,
 }: TeamPlannerProps) {
   
   // Hours array from 08:00 to 17:00
