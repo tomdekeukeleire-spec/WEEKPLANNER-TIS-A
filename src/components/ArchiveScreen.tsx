@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Task, Priority } from '../types';
-import { teamMembers } from '../constants';
+import { Task, Priority, TeamMember } from '../types';
 import { 
   Search, 
   Download, 
@@ -17,12 +16,13 @@ import {
 
 interface ArchiveScreenProps {
   tasks: Task[];
+  teamMembers: TeamMember[];
 }
 
 type SortField = 'date' | 'week' | 'member' | 'subject' | 'description' | 'startTime' | 'endTime' | 'priority';
 type SortOrder = 'asc' | 'desc' | 'none';
 
-export default function ArchiveScreen({ tasks }: ArchiveScreenProps) {
+export default function ArchiveScreen({ tasks, teamMembers }: ArchiveScreenProps) {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterMemberId, setFilterMemberId] = useState<string>('all');
   const [filterSubject, setFilterSubject] = useState<string>('all');
