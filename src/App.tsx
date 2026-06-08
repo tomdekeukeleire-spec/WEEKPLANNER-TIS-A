@@ -18,21 +18,6 @@ import {
   Settings 
 } from 'lucide-react';
 
-// HELPER: Convert "HH:MM" naar decimaal getal voor tijd-berekeningen
-function parseTimeToDecimal(timeStr: string): number {
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  return hours + (minutes || 0) / 60;
-}
-
-// HELPER: ISO Weeknummer berekenen op basis van Date object
-function getISOWeekFromDate(d: Date): number {
-  const dateCopy = new Date(d.getTime());
-  dateCopy.setHours(0, 0, 0, 0);
-  dateCopy.setDate(dateCopy.getDate() + 3 - (dateCopy.getDay() + 6) % 7);
-  const week1 = new Date(dateCopy.getFullYear(), 0, 4);
-  return 1 + Math.round(((dateCopy.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
-}
-
 function dbToTask(row: any): Task {
   return {
     id: row.id,
@@ -69,7 +54,8 @@ export default function App() {
   const [session, setSession] = useState<UserSession | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [teamMembersState, setTeamMembersState] = useState<TeamMember[]>(initialTeamMembers);
+  const [teamMembersState, setTeamMembersState] = useState<TeamMember[]>([]); // Start leeg om database af te dwingen
+  const [loadingMembers, setLoadingMembers] = useState<boolean>(true); // NIEUW: Volg of de DB klaar is met laden
   const [activeTab, setActiveTab] = useState<'dag' | 'week' | 'analytics' | 'archive' | 'settings'>('dag');
 
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -94,7 +80,7 @@ export default function App() {
     notificationTimeoutRef.current = window.setTimeout(() => setNotification(null), 4000);
   };
 
-  // Sync Team Members
+  // Sync Team Members vanuit de database
   useEffect(() => {
     const fetchTeamMembers = async () => {
       try {
@@ -107,16 +93,23 @@ export default function App() {
           setTeamMembersState(initialTeamMembers);
         } else if (data && data.length > 0) {
           setTeamMembersState(data);
+        } else {
+          setTeamMembersState(initialTeamMembers);
         }
       } catch (err) {
         setTeamMembersState(initialTeamMembers);
+      } finally {
+        setLoadingMembers(false); // Database is ingeladen!
       }
     };
     fetchTeamMembers();
   }, []);
 
-  // Sync Google Auth Browser Session
+  // Sync Google Auth Browser Session + Harde Poortwachter controle (NU VEILIG)
   useEffect(() => {
+    // CRUCIAL: Als de database-lijst nog onderweg is, wacht met controleren!
+    if (loadingMembers) return; 
+
     const syncUserSession = (sbSession: any) => {
       if (!sbSession?.user) {
         setSession(null);
@@ -127,6 +120,7 @@ export default function App() {
       const email = user.email || '';
       const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Teamlid';
 
+      // 1. VIP Ingang: Tom of Bart (Altijd direct Superuser)
       const isTom = email.toLowerCase().includes('tom.de.keukeleire') || fullName.toLowerCase().includes('tom de keukeleire');
       const isBart = email.toLowerCase().includes('bart.vanneste') || fullName.toLowerCase().includes('bart vanneste');
 
@@ -141,12 +135,14 @@ export default function App() {
         return;
       }
 
-      const matched = teamMembersState.find(m => (m as any).email?.toLowerCase() === email.toLowerCase());
+      // 2. Match exact op ingevoerd mailadres uit de VERSE database-lijst (inclusief trimmings)
+      const matched = teamMembersState.find(m => (m as any).email?.trim().toLowerCase() === email.trim().toLowerCase());
       
       if (matched) {
         setSession({ memberId: matched.id, name: matched.name, initials: matched.initials, role: 'User' });
         setAuthError(null);
       } else {
+        // Alleen uitloggen als we ZEKER weten dat de database geladen is en de mail er écht niet in staat
         supabase.auth.signOut();
         setSession(null);
         setAuthError(`Toegang geweigerd. Uw TVH-account (${email}) is niet geautoriseerd voor deze weekplanner. Neem contact op met Tom of Bart.`);
@@ -157,7 +153,7 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => syncUserSession(s));
 
     return () => subscription.unsubscribe();
-  }, [teamMembersState]);
+  }, [teamMembersState, loadingMembers]);
 
   // Tasks Sync
   useEffect(() => {
@@ -184,6 +180,21 @@ export default function App() {
 
     return () => { supabase.removeChannel(channel); };
   }, [session]);
+
+  // Helper: Convert "HH:MM" naar decimaal getal
+  function parseTimeToDecimal(timeStr: string): number {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours + (minutes || 0) / 60;
+  }
+
+  // Helper: ISO Weeknummer berekenen
+  function getISOWeekFromDate(d: Date): number {
+    const dateCopy = new Date(d.getTime());
+    dateCopy.setHours(0, 0, 0, 0);
+    dateCopy.setDate(dateCopy.getDate() + 3 - (dateCopy.getDay() + 6) % 7);
+    const week1 = new Date(dateCopy.getFullYear(), 0, 4);
+    return 1 + Math.round(((dateCopy.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+  }
 
   const handleLogout = async () => {
     if (confirm('Weet u zeker dat u wilt afmelden?')) {
@@ -213,7 +224,6 @@ export default function App() {
     const tEnd = parseTimeToDecimal(taskPayload.endTime || '09:00');
     const initialDate = taskPayload.date || selectedDate;
 
-    // 1. DYNAMISCHE CONFLICTDETECTIE
     const hasConflict = tasks.some(t => 
       t.teamMemberId === taskPayload.teamMemberId &&
       t.date === initialDate &&
@@ -222,12 +232,11 @@ export default function App() {
     );
 
     if (hasConflict) {
-      const proceed = window.confirm(`⚠️ Let op: Dit teamlid heeft al een andere taak gepland op dit tijdstip (${taskPayload.startTime} - ${taskPayload.endTime}). Wilt u deze boeking toch forceren en doorvoeren?`);
+      const proceed = window.confirm(`⚠️ Let op: Dit teamlid heeft al een andere taak gepland op dit tijdstip (${taskPayload.startTime} - ${taskPayload.endTime}). Wilt u deze boeking toch forceren?`);
       if (!proceed) return;
     }
 
     if (taskPayload.id) {
-      // BEWERKEN LOGICA
       const index = tasks.findIndex(t => t.id === taskPayload.id);
       if (index === -1) return;
       const original = tasks[index];
@@ -240,9 +249,7 @@ export default function App() {
         setTasks(prev => { const c = [...prev]; c[index] = original; return c; });
       }
     } else {
-      // INVOER LOGICA
       if (taskPayload.repeatWeekly) {
-        // 2. LOGICA VOOR WEDERKERENDE TAKEN (Loop wekelijks tot einde 2026)
         const generatedTasks: Task[] = [];
         const dbRows: any[] = [];
         let currentNewDate = new Date(initialDate);
@@ -268,12 +275,9 @@ export default function App() {
 
           generatedTasks.push(newTask);
           dbRows.push(taskToDb(newTask));
-
-          // Verhoog de datum met 7 dagen voor de volgende week
           currentNewDate.setDate(currentNewDate.getDate() + 7);
         }
 
-        // Bulk insert in state & database
         setTasks(prev => [...prev, ...generatedTasks]);
         try {
           await supabase.from('tasks').insert(dbRows);
@@ -284,7 +288,6 @@ export default function App() {
         }
 
       } else {
-        // GEWONE ENKELE TAAK LOGICA
         const newId = Math.random().toString(36).substring(2, 9);
         const newTask: Task = {
           id: newId,
@@ -309,16 +312,17 @@ export default function App() {
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
-    setIsModalOpen(false);
-    const original = [...tasks];
-    setTasks(prev => prev.filter(t => t.id !== taskId));
-    try {
-      await supabase.from('tasks').delete().eq('id', taskId);
-    } catch {
-      setTasks(original);
-    }
-  };
+  // Laat een nette, rustige lader zien zolang de database opstart
+  if (loadingMembers) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Systeem Beveiliging Laden...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (authError) {
     return (
