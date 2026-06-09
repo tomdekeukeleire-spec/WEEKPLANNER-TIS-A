@@ -104,7 +104,7 @@ export default function App() {
     notificationTimeoutRef.current = window.setTimeout(() => setNotification(null), 4000);
   };
 
-  // Sync Team Members vanuit database
+  // Sync Team Members
   useEffect(() => {
     const fetchTeamMembers = async () => {
       try {
@@ -129,7 +129,7 @@ export default function App() {
     fetchTeamMembers();
   }, []);
 
-  // Sync Google Session + Poortwachter
+  // Sync Google Session
   useEffect(() => {
     if (loadingMembers) return; 
 
@@ -143,7 +143,6 @@ export default function App() {
       const email = user.email || '';
       const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Teamlid';
 
-      // VIP Ingang
       const isTom = email.toLowerCase().includes('tom.de.keukeleire') || fullName.toLowerCase().includes('tom de keukeleire');
       const isBart = email.toLowerCase().includes('bart.vanneste') || fullName.toLowerCase().includes('bart vanneste');
 
@@ -158,7 +157,6 @@ export default function App() {
         return;
       }
 
-      // Exacte Match
       const matched = teamMembersState.find(m => {
         const dbEmail = (m as any).email;
         if (!dbEmail || typeof dbEmail !== 'string') return false;
@@ -207,14 +205,6 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session]);
 
-  const handleLogout = async () => {
-    if (confirm('Weet u zeker dat u wilt afmelden?')) {
-      await supabase.auth.signOut();
-      setSession(null);
-      setTasks([]);
-    }
-  };
-
   const handleAddTaskTrigger = (memberId: string, initialHour?: string) => {
     setEditingTask(null);
     const targetId = memberId || (session?.role === 'Superuser' ? teamMembersState[0]?.id : session?.memberId) || '';
@@ -234,21 +224,25 @@ export default function App() {
     const tStart = parseTimeToDecimal(taskPayload.startTime || '08:00');
     const tEnd = parseTimeToDecimal(taskPayload.endTime || '09:00');
     const initialDate = taskPayload.date || selectedDate;
+    const endDate = taskPayload.endDate || initialDate;
 
-    // Conflictdetectie
-    const hasConflict = tasks.some(t => 
-      t.teamMemberId === taskPayload.teamMemberId &&
-      t.date === initialDate &&
-      t.id !== taskPayload.id &&
-      (parseTimeToDecimal(t.startTime) < tEnd && parseTimeToDecimal(t.endTime) > tStart)
-    );
+    // 1. CONFLICTDETECTIE (Alleen voor losse taken of bewerkingen, bij periodes handelt het bulk-verlof)
+    if (initialDate === endDate) {
+      const hasConflict = tasks.some(t => 
+        t.teamMemberId === taskPayload.teamMemberId &&
+        t.date === initialDate &&
+        t.id !== taskPayload.id &&
+        (parseTimeToDecimal(t.startTime) < tEnd && parseTimeToDecimal(t.endTime) > tStart)
+      );
 
-    if (hasConflict) {
-      const proceed = window.confirm(`⚠️ Let op: Dit teamlid heeft al een andere taak gepland op dit tijdstip (${taskPayload.startTime} - ${taskPayload.endTime}). Wilt u deze boeking toch forceren?`);
-      if (!proceed) return;
+      if (hasConflict) {
+        const proceed = window.confirm(`⚠️ Let op: Dit teamlid heeft al een andere taak gepland op dit tijdstip (${taskPayload.startTime} - ${taskPayload.endTime}). Wilt u deze boeking toch forceren?`);
+        if (!proceed) return;
+      }
     }
 
     if (taskPayload.id) {
+      // EEN BESPRAKEN ITEM BIJWERKEN
       const index = tasks.findIndex(t => t.id === taskPayload.id);
       if (index === -1) return;
       const original = tasks[index];
@@ -261,14 +255,73 @@ export default function App() {
         setTasks(prev => { const c = [...prev]; c[index] = original; return c; });
       }
     } else {
-      if (taskPayload.repeatWeekly) {
-        // DYNAMISCH JAARTAL: Kijkt naar het jaar van de geselecteerde datum
+      // GLOEDNIEUWE INVOER
+      if (endDate && endDate !== initialDate) {
+        // ==========================================
+        // NIEUW: SLIMME PERIODE EN VERLOF LOGICA (INCL WEEKEND SKIP)
+        // ==========================================
+        const generatedTasks: Task[] = [];
+        const dbRows: any[] = [];
+        
+        const [sY, sM, sD] = initialDate.split('-').map(Number);
+        const [eY, eM, eD] = endDate.split('-').map(Number);
+        
+        let current = new Date(sY, sM - 1, sD);
+        const end = new Date(eY, eM - 1, eD);
+
+        while (current <= end) {
+          const dayOfWeek = current.getDay();
+          
+          // Sla zaterdagen (6) en zondagen (0) keurig over!
+          if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            const yyyy = current.getFullYear();
+            const mm = String(current.getMonth() + 1).padStart(2, '0');
+            const dd = String(current.getDate()).padStart(2, '0');
+            const dateStr = `${yyyy}-${mm}-${dd}`;
+            const calculatedWeek = getISOWeekFromDate(current);
+            const generatedId = Math.random().toString(36).substring(2, 9);
+
+            const newTask: Task = {
+              id: generatedId,
+              date: dateStr,
+              week: calculatedWeek,
+              teamMemberId: taskPayload.teamMemberId!,
+              subject: taskPayload.subject,
+              description: taskPayload.description!,
+              startTime: taskPayload.startTime!,
+              endTime: taskPayload.endTime!,
+              priority: taskPayload.priority!,
+              createdBy: session?.name || 'User',
+              createdAt: Date.now()
+            };
+
+            generatedTasks.push(newTask);
+            dbRows.push(taskToDb(newTask));
+          }
+          current.setDate(current.getDate() + 1); // Ga 1 dag vooruit
+        }
+
+        if (generatedTasks.length === 0) {
+          alert('De geselecteerde periode bevat geen doordeweekse werkdagen!');
+          return;
+        }
+
+        setTasks(prev => [...prev, ...generatedTasks]);
+        try {
+          await supabase.from('tasks').insert(dbRows);
+          triggerNotification(`📅 Periode succesvol ingepland voor ${generatedTasks.length} werkdagen (weekends overgeslagen)!`);
+        } catch {
+          const addedIds = generatedTasks.map(t => t.id);
+          setTasks(prev => prev.filter(t => !addedIds.includes(t.id)));
+        }
+
+      } else if (taskPayload.repeatWeekly) {
+        // WEKELIJKSE HERHALING VAN 1 LOSSE DAG
         const targetYear = new Date(initialDate).getFullYear();
         const generatedTasks: Task[] = [];
         const dbRows: any[] = [];
         let currentNewDate = new Date(initialDate);
 
-        // Blijf weken toevoegen zolang we in het doel-jaar zitten
         while (currentNewDate.getFullYear() === targetYear) {
           const dateStr = currentNewDate.toISOString().split('T')[0];
           const calculatedWeek = getISOWeekFromDate(currentNewDate);
@@ -290,7 +343,7 @@ export default function App() {
 
           generatedTasks.push(newTask);
           dbRows.push(taskToDb(newTask));
-          currentNewDate.setDate(currentNewDate.getDate() + 7); // Ga 1 week verder
+          currentNewDate.setDate(currentNewDate.getDate() + 7);
         }
 
         setTasks(prev => [...prev, ...generatedTasks]);
@@ -303,6 +356,7 @@ export default function App() {
         }
 
       } else {
+        // GEWONE ENKELE TAAK LOGICA
         const newId = Math.random().toString(36).substring(2, 9);
         const newTask: Task = {
           id: newId,
@@ -330,7 +384,7 @@ export default function App() {
   const handleDeleteTask = async (taskId: string) => {
     setIsModalOpen(false);
     const original = [...tasks];
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+    setTasks(prev => prev.filter(t => h.id !== taskId));
     try {
       await supabase.from('tasks').delete().eq('id', taskId);
     } catch {
