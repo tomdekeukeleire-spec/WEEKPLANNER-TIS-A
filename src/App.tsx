@@ -22,7 +22,6 @@ import {
 // SCHONE EN VEILIGE HULPFUNCTIES
 // ==========================================
 
-// VEILIG: Convert "HH:MM" naar decimaal getal (voorkomt crashes op lege/foute data)
 function parseTimeToDecimal(timeStr: string | null | undefined): number {
   if (!timeStr || typeof timeStr !== 'string' || !timeStr.includes(':')) {
     return 0; 
@@ -31,7 +30,6 @@ function parseTimeToDecimal(timeStr: string | null | undefined): number {
   return hours + (minutes || 0) / 60;
 }
 
-// VEILIG: ISO Weeknummer berekenen op basis van Date object
 function getISOWeekFromDate(d: Date): number {
   if (!d || isNaN(d.getTime())) return 22;
   const dateCopy = new Date(d.getTime());
@@ -106,7 +104,7 @@ export default function App() {
     notificationTimeoutRef.current = window.setTimeout(() => setNotification(null), 4000);
   };
 
-  // Sync Team Members vanuit de database
+  // Sync Team Members vanuit database
   useEffect(() => {
     const fetchTeamMembers = async () => {
       try {
@@ -131,7 +129,7 @@ export default function App() {
     fetchTeamMembers();
   }, []);
 
-  // Sync Google Session + Harde Poortwachter controle (NU COMPLEET CRASH-PROOF)
+  // Sync Google Session + Poortwachter
   useEffect(() => {
     if (loadingMembers) return; 
 
@@ -145,7 +143,7 @@ export default function App() {
       const email = user.email || '';
       const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Teamlid';
 
-      // 1. VIP Ingang: Tom of Bart (Altijd direct Superuser)
+      // VIP Ingang
       const isTom = email.toLowerCase().includes('tom.de.keukeleire') || fullName.toLowerCase().includes('tom de keukeleire');
       const isBart = email.toLowerCase().includes('bart.vanneste') || fullName.toLowerCase().includes('bart vanneste');
 
@@ -160,7 +158,7 @@ export default function App() {
         return;
       }
 
-      // 2. CRASH-PROOF MATCHING: Controleer eerst of het database-veld text bevat om crashes te voorkomen!
+      // Exacte Match
       const matched = teamMembersState.find(m => {
         const dbEmail = (m as any).email;
         if (!dbEmail || typeof dbEmail !== 'string') return false;
@@ -237,6 +235,7 @@ export default function App() {
     const tEnd = parseTimeToDecimal(taskPayload.endTime || '09:00');
     const initialDate = taskPayload.date || selectedDate;
 
+    // Conflictdetectie
     const hasConflict = tasks.some(t => 
       t.teamMemberId === taskPayload.teamMemberId &&
       t.date === initialDate &&
@@ -263,11 +262,14 @@ export default function App() {
       }
     } else {
       if (taskPayload.repeatWeekly) {
+        // DYNAMISCH JAARTAL: Kijkt naar het jaar van de geselecteerde datum
+        const targetYear = new Date(initialDate).getFullYear();
         const generatedTasks: Task[] = [];
         const dbRows: any[] = [];
         let currentNewDate = new Date(initialDate);
 
-        while (currentNewDate.getFullYear() === 2026) {
+        // Blijf weken toevoegen zolang we in het doel-jaar zitten
+        while (currentNewDate.getFullYear() === targetYear) {
           const dateStr = currentNewDate.toISOString().split('T')[0];
           const calculatedWeek = getISOWeekFromDate(currentNewDate);
           const generatedId = Math.random().toString(36).substring(2, 9);
@@ -288,13 +290,13 @@ export default function App() {
 
           generatedTasks.push(newTask);
           dbRows.push(taskToDb(newTask));
-          currentNewDate.setDate(currentNewDate.getDate() + 7);
+          currentNewDate.setDate(currentNewDate.getDate() + 7); // Ga 1 week verder
         }
 
         setTasks(prev => [...prev, ...generatedTasks]);
         try {
           await supabase.from('tasks').insert(dbRows);
-          triggerNotification(`🔄 Wederkerend item succesvol ingepland voor ${generatedTasks.length} weken!`);
+          triggerNotification(`🔄 Wederkerend item succesvol ingepland voor ${generatedTasks.length} weken in ${targetYear}!`);
         } catch {
           const addedIds = generatedTasks.map(t => t.id);
           setTasks(prev => prev.filter(t => !addedIds.includes(t.id)));
