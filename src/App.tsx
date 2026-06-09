@@ -18,6 +18,29 @@ import {
   Settings 
 } from 'lucide-react';
 
+// ==========================================
+// SCHONE EN VEILIGE HULPFUNCTIES (EÉNMAAL DECLARED)
+// ==========================================
+
+// VEILIG: Convert "HH:MM" naar decimaal getal (voorkomt crashes op lege/foute data)
+function parseTimeToDecimal(timeStr: string | null | undefined): number {
+  if (!timeStr || typeof timeStr !== 'string' || !timeStr.includes(':')) {
+    return 0; 
+  }
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours + (minutes || 0) / 60;
+}
+
+// VEILIG: ISO Weeknummer berekenen op basis van Date object
+function getISOWeekFromDate(d: Date): number {
+  if (!d || isNaN(d.getTime())) return 22;
+  const dateCopy = new Date(d.getTime());
+  dateCopy.setHours(0, 0, 0, 0);
+  dateCopy.setDate(dateCopy.getDate() + 3 - (dateCopy.getDay() + 6) % 7);
+  const week1 = new Date(dateCopy.getFullYear(), 0, 4);
+  return 1 + Math.round(((dateCopy.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+}
+
 function dbToTask(row: any): Task {
   return {
     id: row.id,
@@ -50,12 +73,15 @@ function taskToDb(task: Partial<Task>): any {
   return row;
 }
 
+// ==========================================
+// HOOFD COMPONENT
+// ==========================================
 export default function App() {
   const [session, setSession] = useState<UserSession | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [teamMembersState, setTeamMembersState] = useState<TeamMember[]>([]); // Start leeg om database af te dwingen
-  const [loadingMembers, setLoadingMembers] = useState<boolean>(true); // NIEUW: Volg of de DB klaar is met laden
+  const [teamMembersState, setTeamMembersState] = useState<TeamMember[]>([]); 
+  const [loadingMembers, setLoadingMembers] = useState<boolean>(true); 
   const [activeTab, setActiveTab] = useState<'dag' | 'week' | 'analytics' | 'archive' | 'settings'>('dag');
 
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -80,7 +106,7 @@ export default function App() {
     notificationTimeoutRef.current = window.setTimeout(() => setNotification(null), 4000);
   };
 
-  // Sync Team Members vanuit de database
+  // Sync Team Members
   useEffect(() => {
     const fetchTeamMembers = async () => {
       try {
@@ -99,15 +125,14 @@ export default function App() {
       } catch (err) {
         setTeamMembersState(initialTeamMembers);
       } finally {
-        setLoadingMembers(false); // Database is ingeladen!
+        setLoadingMembers(false);
       }
     };
     fetchTeamMembers();
   }, []);
 
-  // Sync Google Auth Browser Session + Harde Poortwachter controle (NU VEILIG)
+  // Sync Google Session
   useEffect(() => {
-    // CRUCIAL: Als de database-lijst nog onderweg is, wacht met controleren!
     if (loadingMembers) return; 
 
     const syncUserSession = (sbSession: any) => {
@@ -120,7 +145,6 @@ export default function App() {
       const email = user.email || '';
       const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Teamlid';
 
-      // 1. VIP Ingang: Tom of Bart (Altijd direct Superuser)
       const isTom = email.toLowerCase().includes('tom.de.keukeleire') || fullName.toLowerCase().includes('tom de keukeleire');
       const isBart = email.toLowerCase().includes('bart.vanneste') || fullName.toLowerCase().includes('bart vanneste');
 
@@ -135,14 +159,12 @@ export default function App() {
         return;
       }
 
-      // 2. Match exact op ingevoerd mailadres uit de VERSE database-lijst (inclusief trimmings)
       const matched = teamMembersState.find(m => (m as any).email?.trim().toLowerCase() === email.trim().toLowerCase());
       
       if (matched) {
         setSession({ memberId: matched.id, name: matched.name, initials: matched.initials, role: 'User' });
         setAuthError(null);
       } else {
-        // Alleen uitloggen als we ZEKER weten dat de database geladen is en de mail er écht niet in staat
         supabase.auth.signOut();
         setSession(null);
         setAuthError(`Toegang geweigerd. Uw TVH-account (${email}) is niet geautoriseerd voor deze weekplanner. Neem contact op met Tom of Bart.`);
@@ -181,29 +203,6 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session]);
 
-  // Helper: Convert "HH:MM" naar decimaal getal
-  function parseTimeToDecimal(timeStr: string): number {
-    const [hours, minutes] = timeStr.split(':').map(Number);
-    return hours + (minutes || 0) / 60;
-  }
-
-  // Helper: ISO Weeknummer berekenen
-  function getISOWeekFromDate(d: Date): number {
-    const dateCopy = new Date(d.getTime());
-    dateCopy.setHours(0, 0, 0, 0);
-    dateCopy.setDate(dateCopy.getDate() + 3 - (dateCopy.getDay() + 6) % 7);
-    const week1 = new Date(dateCopy.getFullYear(), 0, 4);
-    return 1 + Math.round(((dateCopy.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
-  }
-
-  const handleLogout = async () => {
-    if (confirm('Weet u zeker dat u wilt afmelden?')) {
-      await supabase.auth.signOut();
-      setSession(null);
-      setTasks([]);
-    }
-  };
-
   const handleAddTaskTrigger = (memberId: string, initialHour?: string) => {
     setEditingTask(null);
     const targetId = memberId || (session?.role === 'Superuser' ? teamMembersState[0]?.id : session?.memberId) || '';
@@ -224,6 +223,7 @@ export default function App() {
     const tEnd = parseTimeToDecimal(taskPayload.endTime || '09:00');
     const initialDate = taskPayload.date || selectedDate;
 
+    // Conflictdetectie met ingebouwde Null-safeguard
     const hasConflict = tasks.some(t => 
       t.teamMemberId === taskPayload.teamMemberId &&
       t.date === initialDate &&
@@ -312,7 +312,17 @@ export default function App() {
     }
   };
 
-  // Laat een nette, rustige lader zien zolang de database opstart
+  const handleDeleteTask = async (taskId: string) => {
+    setIsModalOpen(false);
+    const original = [...tasks];
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+    try {
+      await supabase.from('tasks').delete().eq('id', taskId);
+    } catch {
+      setTasks(original);
+    }
+  };
+
   if (loadingMembers) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans">
