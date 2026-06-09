@@ -226,7 +226,6 @@ export default function App() {
     const initialDate = taskPayload.date || selectedDate;
     const endDate = taskPayload.endDate || initialDate;
 
-    // 1. CONFLICTDETECTIE (Alleen voor losse taken of bewerkingen, bij periodes handelt het bulk-verlof)
     if (initialDate === endDate) {
       const hasConflict = tasks.some(t => 
         t.teamMemberId === taskPayload.teamMemberId &&
@@ -242,7 +241,6 @@ export default function App() {
     }
 
     if (taskPayload.id) {
-      // EEN BESPRAKEN ITEM BIJWERKEN
       const index = tasks.findIndex(t => t.id === taskPayload.id);
       if (index === -1) return;
       const original = tasks[index];
@@ -255,11 +253,7 @@ export default function App() {
         setTasks(prev => { const c = [...prev]; c[index] = original; return c; });
       }
     } else {
-      // GLOEDNIEUWE INVOER
       if (endDate && endDate !== initialDate) {
-        // ==========================================
-        // NIEUW: SLIMME PERIODE EN VERLOF LOGICA (INCL WEEKEND SKIP)
-        // ==========================================
         const generatedTasks: Task[] = [];
         const dbRows: any[] = [];
         
@@ -272,7 +266,6 @@ export default function App() {
         while (current <= end) {
           const dayOfWeek = current.getDay();
           
-          // Sla zaterdagen (6) en zondagen (0) keurig over!
           if (dayOfWeek !== 0 && dayOfWeek !== 6) {
             const yyyy = current.getFullYear();
             const mm = String(current.getMonth() + 1).padStart(2, '0');
@@ -298,7 +291,7 @@ export default function App() {
             generatedTasks.push(newTask);
             dbRows.push(taskToDb(newTask));
           }
-          current.setDate(current.getDate() + 1); // Ga 1 dag vooruit
+          current.setDate(current.getDate() + 1); 
         }
 
         if (generatedTasks.length === 0) {
@@ -316,7 +309,6 @@ export default function App() {
         }
 
       } else if (taskPayload.repeatWeekly) {
-        // WEKELIJKSE HERHALING VAN 1 LOSSE DAG
         const targetYear = new Date(initialDate).getFullYear();
         const generatedTasks: Task[] = [];
         const dbRows: any[] = [];
@@ -356,7 +348,6 @@ export default function App() {
         }
 
       } else {
-        // GEWONE ENKELE TAAK LOGICA
         const newId = Math.random().toString(36).substring(2, 9);
         const newTask: Task = {
           id: newId,
@@ -381,10 +372,11 @@ export default function App() {
     }
   };
 
+  // HIER ZAT DE FOUT: h.id is nu netjes t.id !
   const handleDeleteTask = async (taskId: string) => {
     setIsModalOpen(false);
     const original = [...tasks];
-    setTasks(prev => prev.filter(t => h.id !== taskId));
+    setTasks(prev => prev.filter(t => t.id !== taskId));
     try {
       await supabase.from('tasks').delete().eq('id', taskId);
     } catch {
