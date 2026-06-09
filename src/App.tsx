@@ -205,6 +205,17 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session]);
 
+  // =========================================================
+  // DEZE FUNCTIE ONTbrak! (Uitloggen)
+  // =========================================================
+  const handleLogout = async () => {
+    if (confirm('Weet u zeker dat u wilt afmelden?')) {
+      await supabase.auth.signOut();
+      setSession(null);
+      setTasks([]);
+    }
+  };
+
   const handleAddTaskTrigger = (memberId: string, initialHour?: string) => {
     setEditingTask(null);
     const targetId = memberId || (session?.role === 'Superuser' ? teamMembersState[0]?.id : session?.memberId) || '';
@@ -372,7 +383,6 @@ export default function App() {
     }
   };
 
-  // HIER ZAT DE FOUT: h.id is nu netjes t.id !
   const handleDeleteTask = async (taskId: string) => {
     setIsModalOpen(false);
     const original = [...tasks];
