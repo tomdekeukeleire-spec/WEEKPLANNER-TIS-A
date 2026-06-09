@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 // ==========================================
-// SCHONE EN VEILIGE HULPFUNCTIES (EÉNMAAL DECLARED)
+// SCHONE EN VEILIGE HULPFUNCTIES
 // ==========================================
 
 // VEILIG: Convert "HH:MM" naar decimaal getal (voorkomt crashes op lege/foute data)
@@ -106,7 +106,7 @@ export default function App() {
     notificationTimeoutRef.current = window.setTimeout(() => setNotification(null), 4000);
   };
 
-  // Sync Team Members
+  // Sync Team Members vanuit de database
   useEffect(() => {
     const fetchTeamMembers = async () => {
       try {
@@ -131,7 +131,7 @@ export default function App() {
     fetchTeamMembers();
   }, []);
 
-  // Sync Google Session
+  // Sync Google Session + Harde Poortwachter controle (NU COMPLEET CRASH-PROOF)
   useEffect(() => {
     if (loadingMembers) return; 
 
@@ -145,6 +145,7 @@ export default function App() {
       const email = user.email || '';
       const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Teamlid';
 
+      // 1. VIP Ingang: Tom of Bart (Altijd direct Superuser)
       const isTom = email.toLowerCase().includes('tom.de.keukeleire') || fullName.toLowerCase().includes('tom de keukeleire');
       const isBart = email.toLowerCase().includes('bart.vanneste') || fullName.toLowerCase().includes('bart vanneste');
 
@@ -159,7 +160,12 @@ export default function App() {
         return;
       }
 
-      const matched = teamMembersState.find(m => (m as any).email?.trim().toLowerCase() === email.trim().toLowerCase());
+      // 2. CRASH-PROOF MATCHING: Controleer eerst of het database-veld text bevat om crashes te voorkomen!
+      const matched = teamMembersState.find(m => {
+        const dbEmail = (m as any).email;
+        if (!dbEmail || typeof dbEmail !== 'string') return false;
+        return dbEmail.trim().toLowerCase() === email.trim().toLowerCase();
+      });
       
       if (matched) {
         setSession({ memberId: matched.id, name: matched.name, initials: matched.initials, role: 'User' });
@@ -203,6 +209,14 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session]);
 
+  const handleLogout = async () => {
+    if (confirm('Weet u zeker dat u wilt afmelden?')) {
+      await supabase.auth.signOut();
+      setSession(null);
+      setTasks([]);
+    }
+  };
+
   const handleAddTaskTrigger = (memberId: string, initialHour?: string) => {
     setEditingTask(null);
     const targetId = memberId || (session?.role === 'Superuser' ? teamMembersState[0]?.id : session?.memberId) || '';
@@ -223,7 +237,6 @@ export default function App() {
     const tEnd = parseTimeToDecimal(taskPayload.endTime || '09:00');
     const initialDate = taskPayload.date || selectedDate;
 
-    // Conflictdetectie met ingebouwde Null-safeguard
     const hasConflict = tasks.some(t => 
       t.teamMemberId === taskPayload.teamMemberId &&
       t.date === initialDate &&
