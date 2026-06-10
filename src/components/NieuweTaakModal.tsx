@@ -1,24 +1,21 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, FormEvent, useRef } from 'react';
+import { PRIORITY_COLORS } from '../constants';
 import { Priority, Task, TeamMember } from '../types';
 import { X, Calendar, Clock, AlertTriangle, Check, Trash2 } from 'lucide-react';
-
-// NIEUW: De externe kalender module importeren
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
 
 interface NieuweTaakModalProps {
   onClose: () => void;
   onSave: (task: any) => void;
   onDelete?: (taskId: string) => void;
   editingTask?: Task | null;
-  defaultDate?: string; // YYYY-MM-DD
+  defaultDate?: string;
   defaultMemberId?: string;
   teamMembers: TeamMember[];
   isSuperuser: boolean;
   currentUserId: string;
 }
 
-// Helpers voor datum-omzettingen
+// Helper: Berekent het weeknummer
 function getISOWeek(dateStr: string): number {
   if (!dateStr) return 22;
   const d = new Date(dateStr);
@@ -29,17 +26,13 @@ function getISOWeek(dateStr: string): number {
   return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 }
 
-const parseDate = (dStr: string) => {
-  const [y, m, d] = dStr.split('-').map(Number);
-  return new Date(y, m - 1, d);
-};
-
-const formatDate = (d: Date) => {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-};
+// DE TRUC: Forceer áltijd de Europese Notatie (DD/MM/YYYY) voor weergave
+function formatEurope(ymd: string) {
+  if (!ymd) return '';
+  const parts = ymd.split('-');
+  if (parts.length !== 3) return ymd;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
 
 const ALLOWED_TIMES = [
   '08:00', '08:15', '08:30', '08:45', '09:00', '09:15', '09:30', '09:45',
@@ -64,14 +57,8 @@ export default function NieuweTaakModal({
     editingTask?.teamMemberId || (isSuperuser ? (defaultMemberId || (teamMembers.length > 0 ? teamMembers[0].id : '')) : currentUserId)
   );
   
-  // States voor de nieuwe kalender (gebruikt echte Date objecten)
-  const [startDateObj, setStartDateObj] = useState<Date>(parseDate(defaultDate || '2026-06-09'));
-  const [endDateObj, setEndDateObj] = useState<Date>(parseDate(defaultDate || '2026-06-09'));
-
-  // Formatteer achter de schermen naar strings voor de database
-  const date = formatDate(startDateObj);
-  const endDate = formatDate(endDateObj);
-
+  const [date, setDate] = useState<string>(defaultDate || '2026-06-09');
+  const [endDate, setEndDate] = useState<string>(defaultDate || '2026-06-09');
   const [week, setWeek] = useState<number>(24);
   const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Training' | 'Meeting'>('Todo');
   const [description, setDescription] = useState<string>('');
@@ -80,29 +67,29 @@ export default function NieuweTaakModal({
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
   const [repeatWeekly, setRepeatWeekly] = useState<boolean>(false);
 
-  // Auto-calculate week
+  // Referenties naar de onzichtbare kalenders
+  const startDateRef = useRef<HTMLInputElement>(null);
+  const endDateRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     setWeek(getISOWeek(date));
   }, [date]);
 
-  // Dynamisch prioriteiten aanpassen bij onderwerp-swaps
+  const handleStartDateChange = (val: string) => {
+    setDate(val);
+    if (endDate < val) setEndDate(val);
+  };
+
   useEffect(() => {
-    if (subject === 'Verlof') {
-      setPriority(Priority.CRITICAL);
-    } else if (subject === 'Training') {
-      setPriority(Priority.HIGH);
-    } else if (subject === 'Meeting') {
-      if (priority !== Priority.HIGH && priority !== Priority.MEDIUM) {
-        setPriority(Priority.MEDIUM);
-      }
-    }
+    if (subject === 'Verlof') setPriority(Priority.CRITICAL);
+    else if (subject === 'Training') setPriority(Priority.HIGH);
+    else if (subject === 'Meeting' && priority !== Priority.HIGH && priority !== Priority.MEDIUM) setPriority(Priority.MEDIUM);
   }, [subject, priority]);
 
-  // Seed data bij aanpassingen
   useEffect(() => {
     if (editingTask) {
-      setStartDateObj(parseDate(editingTask.date));
-      setEndDateObj(parseDate(editingTask.date));
+      setDate(editingTask.date);
+      setEndDate(editingTask.date);
       setWeek(editingTask.week);
       setTeamMemberId(editingTask.teamMemberId);
       setDescription(editingTask.description);
@@ -115,18 +102,20 @@ export default function NieuweTaakModal({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-
     const isPeriode = !editingTask && endDate && endDate !== date;
 
     if (!isPeriode) {
-      const dayOfWeek = startDateObj.getDay();
-      if (dayOfWeek === 0 || dayOfWeek === 6) {
-        alert('Plannen in het weekend is niet toegestaan!');
-        return;
+      const dateParts = date.split('-');
+      if (dateParts.length === 3) {
+        const localDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+        if (localDate.getDay() === 0 || localDate.getDay() === 6) {
+          alert('Plannen in het weekend is niet toegestaan!');
+          return;
+        }
       }
     }
 
-    if (isPeriode && endDateObj < startDateObj) {
+    if (isPeriode && endDate < date) {
       alert('De einddatum kan niet vòòr de startdatum liggen.');
       return;
     }
@@ -174,41 +163,64 @@ export default function NieuweTaakModal({
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           
-          <div className="grid grid-cols-2 gap-4 bg-transparent">
-            {/* NIEUW: STARTDATUM MET REACT-DATEPICKER */}
+          <div className="grid grid-cols-2 gap-4 bg-transparent relative">
+            
+            {/* STARTDATUM VAK (TRUC) */}
             <div id="field-date" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-blue-500" /> STARTDATUM
               </label>
-              <DatePicker
-                selected={startDateObj}
-                onChange={(d) => {
-                  if (d) {
-                    setStartDateObj(d);
-                    if (endDateObj < d) setEndDateObj(d);
-                  }
-                }}
-                dateFormat="dd/MM/yyyy"
-                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer text-center"
-              />
+              
+              {/* Het zichtbare, Europese vakje */}
+              <div 
+                onClick={() => { try { startDateRef.current?.showPicker(); } catch(e) {} }}
+                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 flex justify-between items-center cursor-pointer hover:bg-white transition-colors relative"
+              >
+                <span className="font-medium tracking-wide">{formatEurope(date)}</span>
+                <Calendar className="w-4 h-4 text-slate-400" />
+                
+                {/* De onzichtbare aandrijver */}
+                <input
+                  type="date"
+                  ref={startDateRef}
+                  required
+                  value={date}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  className="absolute opacity-0 w-[1px] h-[1px] pointer-events-none overflow-hidden"
+                />
+              </div>
             </div>
 
-            {/* NIEUW: EINDDATUM MET REACT-DATEPICKER */}
+            {/* EINDDATUM VAK (TRUC) */}
             <div id="field-end-date" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-blue-500" /> EINDDATUM {!editingTask && '(OPT)'}
+                <Calendar className="w-3.5 h-3.5 text-blue-500" /> EINDDATUM {!editingTask && '(OPTIONEEL)'}
               </label>
-              <DatePicker
-                selected={endDateObj}
-                onChange={(d) => { if (d) setEndDateObj(d); }}
-                minDate={startDateObj}
-                disabled={!!editingTask}
-                dateFormat="dd/MM/yyyy"
-                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed cursor-pointer text-center"
-              />
+              
+              {/* Het zichtbare, Europese vakje */}
+              <div 
+                onClick={() => { if (!editingTask) { try { endDateRef.current?.showPicker(); } catch(e) {} } }}
+                className={`w-full border border-slate-250 rounded-lg px-3 py-2 text-sm flex justify-between items-center transition-colors relative ${editingTask ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 text-slate-800 cursor-pointer hover:bg-white'}`}
+              >
+                <span className="font-medium tracking-wide">{formatEurope(endDate)}</span>
+                <Calendar className={`w-4 h-4 ${editingTask ? 'text-slate-300' : 'text-slate-400'}`} />
+                
+                {/* De onzichtbare aandrijver */}
+                <input
+                  type="date"
+                  ref={endDateRef}
+                  required
+                  disabled={!!editingTask}
+                  value={endDate}
+                  min={date}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="absolute opacity-0 w-[1px] h-[1px] pointer-events-none overflow-hidden"
+                />
+              </div>
             </div>
           </div>
 
+          {/* ... De rest van het formulier blijft identiek ... */}
           <div className="grid grid-cols-3 gap-4 bg-transparent">
             <div className="space-y-1 bg-transparent col-span-2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">TOEWIJZEN AAN</label>
@@ -264,7 +276,7 @@ export default function NieuweTaakModal({
             </select>
           </div>
 
-          {!editingTask && date === endDate && (
+          {!editingTask && endDate === date && (
             <div className="flex items-center gap-2.5 bg-blue-50/50 border border-blue-100 rounded-xl p-3 select-none">
               <input id="checkbox-repeat-weekly" type="checkbox" checked={repeatWeekly} onChange={(e) => setRepeatWeekly(e.target.checked)} className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer" />
               <label htmlFor="checkbox-repeat-weekly" className="text-xs font-bold text-blue-900 cursor-pointer uppercase tracking-wide">🔄 Wekelijks herhalen tot einde jaar</label>
@@ -282,33 +294,7 @@ export default function NieuweTaakModal({
         </form>
       </div>
 
-      {/* Vormgeving om de kalender eruit te laten zien als de rest van onze app */}
       <style>{`
-        .react-datepicker-wrapper { width: 100%; }
-        .react-datepicker__input-container { width: 100%; }
-        .react-datepicker-popper { z-index: 9999 !important; }
-        .react-datepicker {
-          font-family: inherit;
-          border-radius: 0.75rem;
-          border: 1px solid #e2e8f0;
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-        .react-datepicker__header {
-          background-color: #f8fafc;
-          border-bottom: 1px solid #e2e8f0;
-          border-top-left-radius: 0.75rem;
-          border-top-right-radius: 0.75rem;
-        }
-        .react-datepicker__day--selected {
-          background-color: #2563eb !important;
-          color: white !important;
-          border-radius: 0.375rem;
-        }
-        .react-datepicker__day:hover {
-          background-color: #eff6ff;
-          border-radius: 0.375rem;
-        }
-
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .animate-fade-in { animation: fadeIn 0.15s ease-out forwards; }
