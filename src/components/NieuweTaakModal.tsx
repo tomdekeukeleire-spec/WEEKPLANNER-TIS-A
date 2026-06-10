@@ -1,7 +1,10 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { PRIORITY_COLORS } from '../constants';
 import { Priority, Task, TeamMember } from '../types';
 import { X, Calendar, Clock, AlertTriangle, Check, Trash2 } from 'lucide-react';
+
+// NIEUW: De externe kalender module importeren
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 interface NieuweTaakModalProps {
   onClose: () => void;
@@ -15,7 +18,7 @@ interface NieuweTaakModalProps {
   currentUserId: string;
 }
 
-// ISO Week helper
+// Helpers voor datum-omzettingen
 function getISOWeek(dateStr: string): number {
   if (!dateStr) return 22;
   const d = new Date(dateStr);
@@ -26,17 +29,24 @@ function getISOWeek(dateStr: string): number {
   return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 }
 
+const parseDate = (dStr: string) => {
+  const [y, m, d] = dStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
+const formatDate = (d: Date) => {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 const ALLOWED_TIMES = [
-  '08:00', '08:30',
-  '09:00', '09:30',
-  '10:00', '10:30',
-  '11:00', '11:30', 
-  '12:00', '12:30',
-  '13:00', '13:30',
-  '14:00', '14:30',
-  '15:00', '15:30',
-  '16:00', '16:30', 
-  '17:00'
+  '08:00', '08:15', '08:30', '08:45', '09:00', '09:15', '09:30', '09:45',
+  '10:00', '10:15', '10:30', '10:45', '11:00', '11:15', '11:30', '11:45',
+  '12:00', '12:15', '12:30', '12:45', '13:00', '13:15', '13:30', '13:45',
+  '14:00', '14:15', '14:30', '14:45', '15:00', '15:15', '15:30', '15:45',
+  '16:00'
 ];
 
 export default function NieuweTaakModal({
@@ -54,8 +64,14 @@ export default function NieuweTaakModal({
     editingTask?.teamMemberId || (isSuperuser ? (defaultMemberId || (teamMembers.length > 0 ? teamMembers[0].id : '')) : currentUserId)
   );
   
-  const [date, setDate] = useState<string>(defaultDate || '2026-06-09');
-  const [endDate, setEndDate] = useState<string>(defaultDate || '2026-06-09'); // Nieuwe stand voor einddatum
+  // States voor de nieuwe kalender (gebruikt echte Date objecten)
+  const [startDateObj, setStartDateObj] = useState<Date>(parseDate(defaultDate || '2026-06-09'));
+  const [endDateObj, setEndDateObj] = useState<Date>(parseDate(defaultDate || '2026-06-09'));
+
+  // Formatteer achter de schermen naar strings voor de database
+  const date = formatDate(startDateObj);
+  const endDate = formatDate(endDateObj);
+
   const [week, setWeek] = useState<number>(24);
   const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Training' | 'Meeting'>('Todo');
   const [description, setDescription] = useState<string>('');
@@ -64,19 +80,10 @@ export default function NieuweTaakModal({
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
   const [repeatWeekly, setRepeatWeekly] = useState<boolean>(false);
 
-  // Auto-calculate week gebaseerd op startdatum
+  // Auto-calculate week
   useEffect(() => {
-    const calculatedWeek = getISOWeek(date);
-    setWeek(calculatedWeek);
+    setWeek(getISOWeek(date));
   }, [date]);
-
-  // Als startdatum opschuift tot ná de einddatum, schuif de einddatum automatisch mee op
-  const handleStartDateChange = (val: string) => {
-    setDate(val);
-    if (endDate < val) {
-      setEndDate(val);
-    }
-  };
 
   // Dynamisch prioriteiten aanpassen bij onderwerp-swaps
   useEffect(() => {
@@ -94,8 +101,8 @@ export default function NieuweTaakModal({
   // Seed data bij aanpassingen
   useEffect(() => {
     if (editingTask) {
-      setDate(editingTask.date);
-      setEndDate(editingTask.date);
+      setStartDateObj(parseDate(editingTask.date));
+      setEndDateObj(parseDate(editingTask.date));
       setWeek(editingTask.week);
       setTeamMemberId(editingTask.teamMemberId);
       setDescription(editingTask.description);
@@ -111,22 +118,15 @@ export default function NieuweTaakModal({
 
     const isPeriode = !editingTask && endDate && endDate !== date;
 
-    // Weekend-beveiliging (alleen controleren bij enkele dagboeking)
     if (!isPeriode) {
-      const dateParts = date.split('-');
-      if (dateParts.length === 3) {
-        const y = parseInt(dateParts[0], 10);
-        const m = parseInt(dateParts[1], 10) - 1;
-        const d = parseInt(dateParts[2], 10);
-        const localDate = new Date(y, m, d);
-        if (localDate.getDay() === 0 || localDate.getDay() === 6) {
-          alert('Plannen in het weekend is niet toegestaan!');
-          return;
-        }
+      const dayOfWeek = startDateObj.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        alert('Plannen in het weekend is niet toegestaan!');
+        return;
       }
     }
 
-    if (isPeriode && endDate < date) {
+    if (isPeriode && endDateObj < startDateObj) {
       alert('De einddatum kan niet vòòr de startdatum liggen.');
       return;
     }
@@ -143,7 +143,7 @@ export default function NieuweTaakModal({
 
     const payload: any = {
       date,
-      endDate: isPeriode ? endDate : date, // Geef de einddatum netjes mee
+      endDate: isPeriode ? endDate : date,
       week,
       teamMemberId,
       subject,
@@ -154,10 +154,7 @@ export default function NieuweTaakModal({
       repeatWeekly: !editingTask ? repeatWeekly : false
     };
 
-    if (editingTask) {
-      payload.id = editingTask.id;
-    }
-
+    if (editingTask) payload.id = editingTask.id;
     onSave(payload);
   };
 
@@ -165,7 +162,6 @@ export default function NieuweTaakModal({
     <div id="modal-overlay" className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in font-sans text-slate-900">
       <div id="modal-card" className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col transform transition-all animate-scale-up">
         
-        {/* Header Block */}
         <div id="modal-header" className="flex justify-between items-center p-6 border-b border-slate-100 bg-white shrink-0">
           <div className="flex items-center gap-3 bg-transparent">
             <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-base">+</div>
@@ -176,43 +172,43 @@ export default function NieuweTaakModal({
           <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
         </div>
 
-        {/* Form elements */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           
-          {/* NIEUW: START- EN EINDDATUM GRID RECHTS NAAST ELKAAR */}
           <div className="grid grid-cols-2 gap-4 bg-transparent">
-            {/* Startdatum */}
+            {/* NIEUW: STARTDATUM MET REACT-DATEPICKER */}
             <div id="field-date" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-blue-500" /> STARTDATUM
               </label>
-              <input
-                type="date"
-                required
-                value={date}
-                onChange={(e) => handleStartDateChange(e.target.value)}
-                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+              <DatePicker
+                selected={startDateObj}
+                onChange={(d) => {
+                  if (d) {
+                    setStartDateObj(d);
+                    if (endDateObj < d) setEndDateObj(d);
+                  }
+                }}
+                dateFormat="dd/MM/yyyy"
+                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer text-center"
               />
             </div>
 
-            {/* Einddatum (Enkel invullen voor periodes) */}
+            {/* NIEUW: EINDDATUM MET REACT-DATEPICKER */}
             <div id="field-end-date" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-blue-500" /> EINDDATUM {!editingTask && '(OPTIONEEL)'}
+                <Calendar className="w-3.5 h-3.5 text-blue-500" /> EINDDATUM {!editingTask && '(OPT)'}
               </label>
-              <input
-                type="date"
-                required
-                disabled={!!editingTask} // Uitschakelen bij bewerken van 1 losse taak
-                value={endDate}
-                min={date}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+              <DatePicker
+                selected={endDateObj}
+                onChange={(d) => { if (d) setEndDateObj(d); }}
+                minDate={startDateObj}
+                disabled={!!editingTask}
+                dateFormat="dd/MM/yyyy"
+                className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed cursor-pointer text-center"
               />
             </div>
           </div>
 
-          {/* Week & Teamlid Rij */}
           <div className="grid grid-cols-3 gap-4 bg-transparent">
             <div className="space-y-1 bg-transparent col-span-2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">TOEWIJZEN AAN</label>
@@ -228,7 +224,6 @@ export default function NieuweTaakModal({
             </div>
           </div>
 
-          {/* Onderwerp */}
           <div id="field-subject" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">ONDERWERP</label>
             <select value={subject} onChange={(e) => setSubject(e.target.value as any)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none">
@@ -239,13 +234,11 @@ export default function NieuweTaakModal({
             </select>
           </div>
 
-          {/* Omschrijving */}
           <div id="field-description" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">OMSCHRIJVING {subject === 'Verlof' && '(OPTIONEEL)'}</label>
             <input type="text" required={subject !== 'Verlof'} placeholder={subject === 'Verlof' ? 'Optioneel (bijv. Doktersbezoek)' : 'Bijv. Project Meeting'} value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none placeholder-slate-400" />
           </div>
 
-          {/* Tijden Grid */}
           <div className="grid grid-cols-2 gap-4 bg-transparent">
             <div id="field-start" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-blue-500" /> START</label>
@@ -261,7 +254,6 @@ export default function NieuweTaakModal({
             </div>
           </div>
 
-          {/* Prioriteit */}
           <div id="field-priority" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-blue-500" /> PRIORITEIT</label>
             <select value={priority} disabled={subject === 'Verlof' || subject === 'Training'} onChange={(e) => setPriority(e.target.value as Priority)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:bg-slate-100 text-slate-700">
@@ -272,15 +264,13 @@ export default function NieuweTaakModal({
             </select>
           </div>
 
-          {/* Wekelijkse herhaling vinkje (Alleen verbergen als we al een periode invullen) */}
-          {!editingTask && endDate === date && (
+          {!editingTask && date === endDate && (
             <div className="flex items-center gap-2.5 bg-blue-50/50 border border-blue-100 rounded-xl p-3 select-none">
               <input id="checkbox-repeat-weekly" type="checkbox" checked={repeatWeekly} onChange={(e) => setRepeatWeekly(e.target.checked)} className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer" />
               <label htmlFor="checkbox-repeat-weekly" className="text-xs font-bold text-blue-900 cursor-pointer uppercase tracking-wide">🔄 Wekelijks herhalen tot einde jaar</label>
             </div>
           )}
 
-          {/* Submit Actions Area */}
           <div id="modal-actions" className="pt-5 mt-4 flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 -mx-6 -mb-6 p-6">
             {editingTask && onDelete ? (
               <button id="btn-delete-task" type="button" onClick={() => onDelete(editingTask.id)} className="flex items-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-4 py-2.5 rounded-lg border border-rose-200 text-sm transition-all cursor-pointer"><Trash2 className="w-4 h-4" /><span>Wissen</span></button>
@@ -292,7 +282,33 @@ export default function NieuweTaakModal({
         </form>
       </div>
 
+      {/* Vormgeving om de kalender eruit te laten zien als de rest van onze app */}
       <style>{`
+        .react-datepicker-wrapper { width: 100%; }
+        .react-datepicker__input-container { width: 100%; }
+        .react-datepicker-popper { z-index: 9999 !important; }
+        .react-datepicker {
+          font-family: inherit;
+          border-radius: 0.75rem;
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .react-datepicker__header {
+          background-color: #f8fafc;
+          border-bottom: 1px solid #e2e8f0;
+          border-top-left-radius: 0.75rem;
+          border-top-right-radius: 0.75rem;
+        }
+        .react-datepicker__day--selected {
+          background-color: #2563eb !important;
+          color: white !important;
+          border-radius: 0.375rem;
+        }
+        .react-datepicker__day:hover {
+          background-color: #eff6ff;
+          border-radius: 0.375rem;
+        }
+
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .animate-fade-in { animation: fadeIn 0.15s ease-out forwards; }
