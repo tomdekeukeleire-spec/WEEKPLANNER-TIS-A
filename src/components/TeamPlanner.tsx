@@ -110,7 +110,7 @@ export default function TeamPlanner({
                   
                   {/* LINKER KOLOM */}
                   <div className="col-span-2 py-3 pl-4 pr-2 border-r border-slate-100 flex items-center gap-3 select-none">
-                    <div className="w-9 h-9 rounded-lg bg-blue-600 text-white font-black text-xs flex items-center justify-center shadow-sm shrink-0">
+                    <div className={`w-9 h-9 rounded-lg text-white font-black text-xs flex items-center justify-center shadow-sm shrink-0 ${member.color || 'bg-blue-600'}`}>
                       {member.initials}
                     </div>
                     <div className="truncate">
