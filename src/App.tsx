@@ -51,7 +51,9 @@ function dbToTask(row: any): Task {
     endTime: row.end_time,
     priority: row.priority as Priority,
     createdBy: row.created_by || 'User',
-    createdAt: Number(row.created_at)
+    createdAt: Number(row.created_at),
+    // NIEUW: Status in kaart brengen (standaard active)
+    status: row.status || 'active'
   };
 }
 
@@ -68,6 +70,7 @@ function taskToDb(task: Partial<Task>): any {
   if (task.priority !== undefined) row.priority = task.priority;
   if (task.createdBy !== undefined) row.created_by = task.createdBy;
   if (task.createdAt !== undefined) row.created_at = task.createdAt;
+  if (task.status !== undefined) row.status = task.status;
   return row;
 }
 
@@ -205,9 +208,6 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [session]);
 
-  // =========================================================
-  // DEZE FUNCTIE ONTbrak! (Uitloggen)
-  // =========================================================
   const handleLogout = async () => {
     if (confirm('Weet u zeker dat u wilt afmelden?')) {
       await supabase.auth.signOut();
@@ -232,25 +232,76 @@ export default function App() {
   const handleSaveTask = async (taskPayload: any) => {
     setIsModalOpen(false);
 
-    const tStart = parseTimeToDecimal(taskPayload.startTime || '08:00');
-    const tEnd = parseTimeToDecimal(taskPayload.endTime || '09:00');
     const initialDate = taskPayload.date || selectedDate;
     const endDate = taskPayload.endDate || initialDate;
+    const isLeaveOrSickness = taskPayload.subject === 'Verlof' || taskPayload.subject === 'Ziekte';
 
-    if (initialDate === endDate) {
-      const hasConflict = tasks.some(t => 
+    // -------------------------------------------------------------
+    // LOGICA VOOR VERLOF / ZIEKTE (AUTOMATISCH ANNULLEREN OP DE ACHTERGROND)
+    // -------------------------------------------------------------
+    if (isLeaveOrSickness && !taskPayload.id) {
+      // Zoek alle actieve, overlappende taken voor deze medewerker in de periode
+      const conflicts = tasks.filter(t => 
         t.teamMemberId === taskPayload.teamMemberId &&
-        t.date === initialDate &&
-        t.id !== taskPayload.id &&
-        (parseTimeToDecimal(t.startTime) < tEnd && parseTimeToDecimal(t.endTime) > tStart)
+        t.date >= initialDate &&
+        t.date <= endDate &&
+        t.status === 'active'
       );
 
-      if (hasConflict) {
-        const proceed = window.confirm(`⚠️ Let op: Dit teamlid heeft al een andere taak gepland op dit tijdstip (${taskPayload.startTime} - ${taskPayload.endTime}). Wilt u deze boeking toch forceren?`);
-        if (!proceed) return;
+      if (conflicts.length > 0) {
+        const conflictIds = conflicts.map(c => c.id);
+        // Update in lokale state
+        setTasks(prev => prev.map(t => conflictIds.includes(t.id) ? { ...t, status: 'cancelled' as any } : t));
+        // Update in Database naar 'cancelled'
+        await supabase.from('tasks').update({ status: 'cancelled' }).in('id', conflictIds);
       }
     }
 
+    // -------------------------------------------------------------
+    // LOGICA VOOR REGULIERE CONFLICT RESOLUTIE (SPLITSEN OF VERVANGEN)
+    // -------------------------------------------------------------
+    if (taskPayload.conflictResolution && taskPayload.conflictTaskId) {
+      const confId = taskPayload.conflictTaskId;
+      const targetOldTask = tasks.find(t => t.id === confId);
+
+      if (targetOldTask) {
+        if (taskPayload.conflictResolution === 'overwrite') {
+          // Optie A: Oude taak hard wissen
+          setTasks(prev => prev.filter(t => t.id !== confId));
+          await supabase.from('tasks'].delete().eq('id', confId);
+        } 
+        else if (taskPayload.conflictResolution === 'split') {
+          // Optie B: De Schaar-logica (Splitsen)
+          const oldStart = targetOldTask.startTime;
+          const oldEnd = targetOldTask.endTime;
+          const newStart = taskPayload.startTime;
+          const newEnd = taskPayload.endTime;
+
+          // Segment 1 (Kort de bestaande taak in naar de nieuwe starttijd)
+          if (oldStart < newStart) {
+            await supabase.from('tasks').update({ end_time: newStart }).eq('id', confId);
+          } else {
+            // Als de nieuwe taak exact op de starttijd begint, gooi dit segment weg
+            await supabase.from('tasks').delete().eq('id', confId);
+          }
+
+          // Segment 2 (Als de oude taak langer doorliep dan de nieuwe taak, maak een nieuw staartsegment aan)
+          if (oldEnd > newEnd) {
+            const remainderId = Math.random().toString(36).substring(2, 9);
+            const remainderTask: Task = {
+              ...targetOldTask,
+              id: remainderId,
+              startTime: newEnd,
+              endTime: oldEnd,
+              createdAt: Date.now()
+            };
+            await supabase.from('tasks').insert(taskToDb(remainderTask));
+          }
+        }
+      }
+    }
+
+    // Volg de reguliere opslagketen (Enkel, Periode of Wekelijks herhalend)
     if (taskPayload.id) {
       const index = tasks.findIndex(t => t.id === taskPayload.id);
       if (index === -1) return;
@@ -296,7 +347,8 @@ export default function App() {
               endTime: taskPayload.endTime!,
               priority: taskPayload.priority!,
               createdBy: session?.name || 'User',
-              createdAt: Date.now()
+              createdAt: Date.now(),
+              status: 'active'
             };
 
             generatedTasks.push(newTask);
@@ -341,7 +393,8 @@ export default function App() {
             endTime: taskPayload.endTime!,
             priority: taskPayload.priority!,
             createdBy: session?.name || 'User',
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            status: 'active'
           };
 
           generatedTasks.push(newTask);
@@ -371,7 +424,8 @@ export default function App() {
           endTime: taskPayload.endTime!,
           priority: taskPayload.priority!,
           createdBy: session?.name || 'User',
-          createdAt: Date.now()
+          createdAt: Date.now(),
+          status: 'active'
         };
         setTasks(prev => [...prev, newTask]);
         try {
@@ -385,10 +439,31 @@ export default function App() {
 
   const handleDeleteTask = async (taskId: string) => {
     setIsModalOpen(false);
+    const targetTask = tasks.find(t => t.id === taskId);
     const original = [...tasks];
+    
     setTasks(prev => prev.filter(t => t.id !== taskId));
+
     try {
       await supabase.from('tasks').delete().eq('id', taskId);
+
+      // -------------------------------------------------------------
+      // AUTOMATISCH HERSTELLEN VAN ONDERLIGGENDE TAKEN BIJ VERLOF-WISSING
+      // -------------------------------------------------------------
+      if (targetTask && (targetTask.subject === 'Verlof' || targetTask.subject === 'Ziekte')) {
+        const hiddenConflicts = original.filter(t => 
+          t.teamMemberId === targetTask.teamMemberId &&
+          t.date === targetTask.date &&
+          t.status === 'cancelled'
+        );
+
+        if (hiddenConflicts.length > 0) {
+          const hiddenIds = hiddenConflicts.map(h => h.id);
+          setTasks(prev => prev.map(t => hiddenIds.includes(t.id) ? { ...t, status: 'active' as any } : t));
+          await supabase.from('tasks').update({ status: 'active' }).in('id', hiddenIds);
+          triggerNotification(`♻️ Onderliggende taken automatisch heractiveerd en herkleurd!`);
+        }
+      }
     } catch {
       setTasks(original);
     }
@@ -493,6 +568,8 @@ export default function App() {
           teamMembers={teamMembersState} 
           isSuperuser={session?.role === 'Superuser'}
           currentUserId={session?.memberId || ''}
+          // NIEUW: De takenlijst meegeven zodat het formulier conflicten kan ontdekken
+          tasks={tasks}
         />
       )}
     </div>
