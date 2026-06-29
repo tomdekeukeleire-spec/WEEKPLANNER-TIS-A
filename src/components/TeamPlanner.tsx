@@ -220,3 +220,20 @@ export default function TeamPlanner({
             <div className="flex items-center gap-3">
               <span className="uppercase tracking-wider">Kleurwisser:</span>
               <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-600" /><span>Urgent / Verlof</span></div>
+              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500" /><span>Hoog</span></div>
+              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500" /><span>Medium</span></div>
+              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-purple-600" /><span>Ziekte</span></div>
+              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /><span>Laag</span></div>
+              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300" /><span>Geannuleerd</span></div>
+            </div>
+            <div className="italic text-slate-400 font-normal">
+              💡 Klik op een lege cel voor een nieuwe taak. Weekenddagen worden automatisch overgeslagen.
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  );
+}
