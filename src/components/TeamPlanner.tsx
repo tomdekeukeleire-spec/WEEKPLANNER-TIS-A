@@ -97,7 +97,7 @@ export default function TeamPlanner({
                 {String(h).padStart(2, '0')}:00
               </div>
             ))}
-            <div className="col-span-1" /> 
+            <div className="col-span-1 py-3 text-center font-mono">17:00</div>
           </div>
 
           <div className="divide-y divide-slate-100 bg-white">
