@@ -1,8 +1,17 @@
 export enum Priority {
-  CRITICAL = 'Critical',
-  HIGH = 'High',
-  MEDIUM = 'Medium',
-  LOW = 'Low'
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL'
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  initials: string;
+  color?: string;
+  email?: string;
+  role?: string;
 }
 
 export interface Task {
@@ -10,38 +19,20 @@ export interface Task {
   date: string; // YYYY-MM-DD
   week: number;
   teamMemberId: string;
-  subject?: 'Todo' | 'Verlof' | 'Training' | 'Meeting';
+  subject?: 'Todo' | 'Verlof' | 'Ziekte' | 'Training' | 'Meeting';
   description: string;
   startTime: string; // HH:MM
   endTime: string; // HH:MM
   priority: Priority;
   createdBy: string;
   createdAt: number;
-}
-
-export interface TeamMember {
-  id: string; // initials formatted as well, e.g. "BDB"
-  name: string;
-  initials: string;
-  color: string; // Hex or tailwind class for avatar background
+  // NIEUW: Dit zorgt dat de poortwachter van TypeScript stopt met staken!
+  status: 'active' | 'cancelled'; 
 }
 
 export interface UserSession {
   memberId: string;
   name: string;
   initials: string;
-  loggedInAt: number;
+  role: 'User' | 'Superuser';
 }
-
-export interface OfflineSyncStatus {
-  isOnline: boolean;
-  activeUsers: { name: string; initials: string; memberId: string }[];
-}
-
-export type WebSocketMessage =
-  | { type: 'INIT'; tasks: Task[]; activeUsers: UserSession[] }
-  | { type: 'TASK_CREATED'; task: Task; user: string }
-  | { type: 'TASK_UPDATED'; task: Task; user: string }
-  | { type: 'TASK_DELETED'; taskId: string; user: string }
-  | { type: 'USER_JOINED'; user: UserSession }
-  | { type: 'USER_LEFT'; memberId: string };
