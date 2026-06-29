@@ -152,7 +152,7 @@ export default function TeamPlanner({
                         ? 'bg-slate-200 border-slate-300 text-slate-400 opacity-60 line-through pointer-events-none'
                         : colorClass;
 
-                      const topOffset = isCancelled ? 'top-[30px] h-[18px]' : 'top-[12px] h-[32px] z-10 shadow-sm';
+                      const topOffset = isCancelled ? 'top-[34px] h-[18px]' : 'top-[6px] h-[26px] z-10 shadow-sm';
 
                       return (
                         <div
