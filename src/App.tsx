@@ -268,7 +268,7 @@ export default function App() {
         if (taskPayload.conflictResolution === 'overwrite') {
           // Optie A: Oude taak hard wissen
           setTasks(prev => prev.filter(t => t.id !== confId));
-          await supabase.from('tasks'].delete().eq('id', confId);
+          await supabase.from('tasks').delete().eq('id', confId);
         } 
         else if (taskPayload.conflictResolution === 'split') {
           // Optie B: De Schaar-logica (Splitsen)
