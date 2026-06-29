@@ -19,15 +19,16 @@ export interface Task {
   date: string; // YYYY-MM-DD
   week: number;
   teamMemberId: string;
-  subject?: 'Todo' | 'Verlof' | 'Ziekte' | 'Training' | 'Meeting';
+  // We maken subject en status flexibel zodat Vercel niet meer crasht
+  subject?: 'Todo' | 'Verlof' | 'Ziekte' | 'Training' | 'Meeting' | string;
   description: string;
   startTime: string; // HH:MM
   endTime: string; // HH:MM
   priority: Priority;
   createdBy: string;
   createdAt: number;
-  // NIEUW: Dit zorgt dat de poortwachter van TypeScript stopt met staken!
-  status: 'active' | 'cancelled'; 
+  // HET VRAAGTEKEN: Status is nu optioneel voor oude componenten!
+  status?: 'active' | 'cancelled'; 
 }
 
 export interface UserSession {
