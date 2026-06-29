@@ -148,11 +148,18 @@ export default function TeamPlanner({
                       if (task.subject === 'Ziekte') colorClass = 'bg-purple-600 text-white border-purple-700';
 
                       const isCancelled = task.status === 'cancelled';
+                      
+                      // Grijze balk extra leesbaar gemaakt (donkerdere tekst, 95% ondoorzichtig)
                       const finalColorStyle = isCancelled
-                        ? 'bg-slate-200 border-slate-400 text-slate-600 opacity-90 line-through pointer-events-none'
+                        ? 'bg-slate-200 border-slate-400 text-slate-700 opacity-95 line-through pointer-events-none'
                         : colorClass;
 
-                      const topOffset = isCancelled ? 'top-[36px] h-[20px]' : 'top-[4px] h-[32px] z-10 shadow-sm';
+                      // Het Dakpan-effect: 
+                      // Actief (Rood) = top 2px, hoogte 34px, z-10 (naar achteren)
+                      // Geannuleerd (Grijs) = top 20px, hoogte 34px, z-20 (naar voren / bovenop)
+                      const topOffset = isCancelled 
+                        ? 'top-[20px] h-[34px] z-20 shadow-md' 
+                        : 'top-[2px] h-[34px] z-10 shadow-sm';
 
                       return (
                         <div
