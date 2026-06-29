@@ -159,7 +159,6 @@ export default function TeamPlanner({
                           key={task.id}
                           onClick={(e) => { e.stopPropagation(); if (!isCancelled) onEditTask(task); }}
                           style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
-                          {/* HIER ZIT DE EMENATE FIX: van ${colorClass} naar ${finalColorStyle} */}
                           className={`absolute ${topOffset} border ${finalColorStyle} rounded-md px-2 flex flex-col justify-center transition-all cursor-pointer select-none overflow-hidden group/item`}
                         >
                           <div className="flex items-center justify-between gap-1 w-full">
