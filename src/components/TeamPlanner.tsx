@@ -89,7 +89,7 @@ export default function TeamPlanner({
       <div className="overflow-x-auto w-full">
         <div className="min-w-[1100px] w-full">
           
-          {/* KOLOM KOPPEN (Iets meer padding: py-3) */}
+          {/* KOLOM KOPPEN */}
           <div className="grid grid-cols-12 bg-slate-50/70 border-b border-slate-100 text-[11px] font-bold text-slate-400 tracking-wider uppercase select-none">
             <div className="col-span-2 py-3 pl-4 border-r border-slate-100">Teamlid</div>
             {HOURS.map(h => (
@@ -97,7 +97,7 @@ export default function TeamPlanner({
                 {String(h).padStart(2, '0')}:00
               </div>
             ))}
-            <div className="col-span-1 py-3 text-center font-mono">17:00</div>
+            <div className="col-span-1 py-3 text-center font-mono">17:00</div> 
           </div>
 
           <div className="divide-y divide-slate-100 bg-white">
@@ -108,7 +108,7 @@ export default function TeamPlanner({
               return (
                 <div key={member.id} className="grid grid-cols-12 items-center group hover:bg-slate-50/30 transition-colors">
                   
-                  {/* LINKER KOLOM (Medium formaat) */}
+                  {/* LINKER KOLOM */}
                   <div className="col-span-2 py-3 pl-4 pr-2 border-r border-slate-100 flex items-center gap-3 select-none">
                     <div className="w-9 h-9 rounded-lg bg-blue-600 text-white font-black text-xs flex items-center justify-center shadow-sm shrink-0">
                       {member.initials}
@@ -121,7 +121,7 @@ export default function TeamPlanner({
                     </div>
                   </div>
 
-                  {/* TIMELINE RIJ (Hoogte aangepast naar h-14 oftewel 56px) */}
+                  {/* TIMELINE RIJ */}
                   <div className="col-span-10 h-14 relative bg-transparent grid grid-cols-9 divide-x divide-slate-100/70">
                     
                     {HOURS.map((h, i) => (
@@ -152,7 +152,6 @@ export default function TeamPlanner({
                         ? 'bg-slate-200 border-slate-300 text-slate-400 opacity-60 line-through pointer-events-none'
                         : colorClass;
 
-                      // Medium balk formaten passend bij h-14 (56px)
                       const topOffset = isCancelled ? 'top-[30px] h-[18px]' : 'top-[12px] h-[32px] z-10 shadow-sm';
 
                       return (
@@ -160,6 +159,7 @@ export default function TeamPlanner({
                           key={task.id}
                           onClick={(e) => { e.stopPropagation(); if (!isCancelled) onEditTask(task); }}
                           style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
+                          {/* HIER ZIT DE EMENATE FIX: van ${colorClass} naar ${finalColorStyle} */}
                           className={`absolute ${topOffset} border ${finalColorStyle} rounded-md px-2 flex flex-col justify-center transition-all cursor-pointer select-none overflow-hidden group/item`}
                         >
                           <div className="flex items-center justify-between gap-1 w-full">
@@ -186,7 +186,7 @@ export default function TeamPlanner({
             })}
           </div>
 
-          {/* ONDERSTE BALK: DRUKTEMETERS (weer naar h-12) */}
+          {/* ONDERSTE BALK: DRUKTEMETERS */}
           <div className="grid grid-cols-12 bg-slate-50 border-t border-b border-slate-100 items-center select-none">
             <div className="col-span-2 py-3 pl-4 text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
               <span>🔒 Totaal Schematisch</span>
