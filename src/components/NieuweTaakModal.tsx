@@ -12,7 +12,7 @@ interface NieuweTaakModalProps {
   teamMembers: TeamMember[];
   isSuperuser: boolean;
   currentUserId: string;
-  tasks: Task[]; // Nieuw toegekend via App.tsx
+  tasks: Task[]; 
 }
 
 function getISOWeek(dateStr: string): number {
@@ -59,15 +59,13 @@ export default function NieuweTaakModal({
   const [date, setDate] = useState<string>(defaultDate || '2026-06-09');
   const [endDate, setEndDate] = useState<string>(defaultDate || '2026-06-09');
   const [week, setWeek] = useState<number>(24);
-  // NIEUW: Ziekte toegevoegd aan onderwerpen
-  const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Training' | 'Meeting' | 'Ziekte'>('Todo');
+  const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Ziekte' | 'Training' | 'Meeting'>('Todo');
   const [description, setDescription] = useState<string>('');
   const [startTime, setStartTime] = useState<string>('08:00');
   const [endTime, setEndTime] = useState<string>('09:00');
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
   const [repeatWeekly, setRepeatWeekly] = useState<boolean>(false);
 
-  // UI status blokken voor conflicten
   const [regConflictingTask, setRegConflictingTask] = useState<Task | null>(null);
   const [massaConflictCount, setMassaConflictCount] = useState<number>(0);
   const [showMassaWarning, setShowMassaWarning] = useState<boolean>(false);
@@ -82,7 +80,6 @@ export default function NieuweTaakModal({
   const handleStartDateChange = (val: string) => {
     setDate(val);
     if (endDate < val) setEndDate(val);
-    // Reset waarschuwingen bij datumaanpassing
     setRegConflictingTask(null);
     setShowMassaWarning(false);
   };
@@ -134,7 +131,6 @@ export default function NieuweTaakModal({
     const isPeriode = !editingTask && endDate && endDate !== date;
     const isLeaveOrSickness = subject === 'Verlof' || subject === 'Ziekte';
 
-    // Weekend check
     if (!isPeriode) {
       const dateParts = date.split('-');
       if (dateParts.length === 3) {
@@ -162,11 +158,10 @@ export default function NieuweTaakModal({
     }
 
     // -------------------------------------------------------------
-    // SCANNER VOOR CONFLICTEN (BRAINSTORM)
+    // AUTOMATISCHE VERLOF/ZIEKTE VERGRENDELING (NIEUW)
     // -------------------------------------------------------------
     if (!editingTask) {
       if (isLeaveOrSickness) {
-        // Tel hoeveel actieve taken deze persoon heeft in die periode
         const count = tasks.filter(t => 
           t.teamMemberId === teamMemberId &&
           t.date >= date &&
@@ -177,10 +172,10 @@ export default function NieuweTaakModal({
         if (count > 0 && !showMassaWarning) {
           setMassaConflictCount(count);
           setShowMassaWarning(true);
-          return; // Blokkeer en toon waarschuwing
+          return;
         }
       } else {
-        // Reguliere taak: scan voor tijdopppervlaktes op deze specifieke dag
+        // We scannen of er al een actieve taak staat op deze uren
         const foundOverlap = tasks.find(t => 
           t.teamMemberId === teamMemberId &&
           t.date === date &&
@@ -189,13 +184,19 @@ export default function NieuweTaakModal({
         );
 
         if (foundOverlap && !regConflictingTask) {
+          // DE NIEUWE VERLOF GRENDEL: Als de bestaande taak Verlof of Ziekte is, blokkeer de Todo direct!
+          const isExistingLeave = foundOverlap.subject === 'Verlof' || foundOverlap.subject === 'Ziekte';
+          if (isExistingLeave) {
+            alert(`⚠️ Boeking geweigerd: ${activeMemberName} is op dit tijdstip afwezig wegens ${foundOverlap.subject}. U kunt hier geen werklast overheen plannen.`);
+            return;
+          }
+
           setRegConflictingTask(foundOverlap);
-          return; // Blokkeer en toon splits-keuzemenu
+          return; 
         }
       }
     }
 
-    // Geen conflicten? Sla geruisloos op.
     executeSubmit();
   };
 
@@ -217,7 +218,6 @@ export default function NieuweTaakModal({
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           
-          {/* MASSA ANNULERING GEVAAR BLOK */}
           {showMassaWarning && (
             <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-3 animate-fade-in">
               <div className="flex items-start gap-2.5">
@@ -239,7 +239,6 @@ export default function NieuweTaakModal({
             </div>
           )}
 
-          {/* REGULIER SPLITS / OVERWRITE KEUSER BLOK */}
           {regConflictingTask && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3 animate-fade-in">
               <div className="flex items-start gap-2.5">
