@@ -1,7 +1,6 @@
 import { useState, useEffect, FormEvent, useRef } from 'react';
-import { PRIORITY_COLORS } from '../constants';
 import { Priority, Task, TeamMember } from '../types';
-import { X, Calendar, Clock, AlertTriangle, Check, Trash2 } from 'lucide-react';
+import { X, Calendar, Clock, AlertTriangle, Check, Trash2, Split, RefreshCw } from 'lucide-react';
 
 interface NieuweTaakModalProps {
   onClose: () => void;
@@ -13,9 +12,9 @@ interface NieuweTaakModalProps {
   teamMembers: TeamMember[];
   isSuperuser: boolean;
   currentUserId: string;
+  tasks: Task[]; // Nieuw toegekend via App.tsx
 }
 
-// Helper: Berekent het weeknummer
 function getISOWeek(dateStr: string): number {
   if (!dateStr) return 22;
   const d = new Date(dateStr);
@@ -26,7 +25,6 @@ function getISOWeek(dateStr: string): number {
   return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 }
 
-// DE TRUC: Forceer áltijd de Europese Notatie (DD/MM/YYYY) voor weergave
 function formatEurope(ymd: string) {
   if (!ymd) return '';
   const parts = ymd.split('-');
@@ -52,6 +50,7 @@ export default function NieuweTaakModal({
   teamMembers,
   isSuperuser,
   currentUserId,
+  tasks
 }: NieuweTaakModalProps) {
   const [teamMemberId, setTeamMemberId] = useState<string>(
     editingTask?.teamMemberId || (isSuperuser ? (defaultMemberId || (teamMembers.length > 0 ? teamMembers[0].id : '')) : currentUserId)
@@ -60,14 +59,19 @@ export default function NieuweTaakModal({
   const [date, setDate] = useState<string>(defaultDate || '2026-06-09');
   const [endDate, setEndDate] = useState<string>(defaultDate || '2026-06-09');
   const [week, setWeek] = useState<number>(24);
-  const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Training' | 'Meeting'>('Todo');
+  // NIEUW: Ziekte toegevoegd aan onderwerpen
+  const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Training' | 'Meeting' | 'Ziekte'>('Todo');
   const [description, setDescription] = useState<string>('');
   const [startTime, setStartTime] = useState<string>('08:00');
   const [endTime, setEndTime] = useState<string>('09:00');
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
   const [repeatWeekly, setRepeatWeekly] = useState<boolean>(false);
 
-  // Referenties naar de onzichtbare kalenders
+  // UI status blokken voor conflicten
+  const [regConflictingTask, setRegConflictingTask] = useState<Task | null>(null);
+  const [massaConflictCount, setMassaConflictCount] = useState<number>(0);
+  const [showMassaWarning, setShowMassaWarning] = useState<boolean>(false);
+
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
 
@@ -78,10 +82,13 @@ export default function NieuweTaakModal({
   const handleStartDateChange = (val: string) => {
     setDate(val);
     if (endDate < val) setEndDate(val);
+    // Reset waarschuwingen bij datumaanpassing
+    setRegConflictingTask(null);
+    setShowMassaWarning(false);
   };
 
   useEffect(() => {
-    if (subject === 'Verlof') setPriority(Priority.CRITICAL);
+    if (subject === 'Verlof' || subject === 'Ziekte') setPriority(Priority.CRITICAL);
     else if (subject === 'Training') setPriority(Priority.HIGH);
     else if (subject === 'Meeting' && priority !== Priority.HIGH && priority !== Priority.MEDIUM) setPriority(Priority.MEDIUM);
   }, [subject, priority]);
@@ -96,14 +103,38 @@ export default function NieuweTaakModal({
       setStartTime(editingTask.startTime);
       setEndTime(editingTask.endTime);
       setPriority(editingTask.priority);
-      setSubject(editingTask.subject || 'Todo');
+      setSubject((editingTask.subject as any) || 'Todo');
     }
   }, [editingTask]);
+
+  const executeSubmit = (resolution?: 'split' | 'overwrite') => {
+    const isPeriode = !editingTask && endDate && endDate !== date;
+    
+    const payload: any = {
+      date,
+      endDate: isPeriode ? endDate : date,
+      week,
+      teamMemberId,
+      subject,
+      description: description.trim() || (subject === 'Verlof' ? 'Verlof' : subject === 'Ziekte' ? 'Ziekte' : ''),
+      startTime,
+      endTime,
+      priority,
+      repeatWeekly: !editingTask ? repeatWeekly : false,
+      conflictResolution: resolution,
+      conflictTaskId: regConflictingTask?.id
+    };
+
+    if (editingTask) payload.id = editingTask.id;
+    onSave(payload);
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const isPeriode = !editingTask && endDate && endDate !== date;
+    const isLeaveOrSickness = subject === 'Verlof' || subject === 'Ziekte';
 
+    // Weekend check
     if (!isPeriode) {
       const dateParts = date.split('-');
       if (dateParts.length === 3) {
@@ -120,7 +151,7 @@ export default function NieuweTaakModal({
       return;
     }
 
-    if (subject !== 'Verlof' && !description.trim()) {
+    if (!isLeaveOrSickness && !description.trim()) {
       alert('Vul a.u.b. een omschrijving in.');
       return;
     }
@@ -130,22 +161,45 @@ export default function NieuweTaakModal({
       return;
     }
 
-    const payload: any = {
-      date,
-      endDate: isPeriode ? endDate : date,
-      week,
-      teamMemberId,
-      subject,
-      description: description.trim() || (subject === 'Verlof' ? 'Verlof' : ''),
-      startTime,
-      endTime,
-      priority,
-      repeatWeekly: !editingTask ? repeatWeekly : false
-    };
+    // -------------------------------------------------------------
+    // SCANNER VOOR CONFLICTEN (BRAINSTORM)
+    // -------------------------------------------------------------
+    if (!editingTask) {
+      if (isLeaveOrSickness) {
+        // Tel hoeveel actieve taken deze persoon heeft in die periode
+        const count = tasks.filter(t => 
+          t.teamMemberId === teamMemberId &&
+          t.date >= date &&
+          t.date <= endDate &&
+          t.status === 'active'
+        ).length;
 
-    if (editingTask) payload.id = editingTask.id;
-    onSave(payload);
+        if (count > 0 && !showMassaWarning) {
+          setMassaConflictCount(count);
+          setShowMassaWarning(true);
+          return; // Blokkeer en toon waarschuwing
+        }
+      } else {
+        // Reguliere taak: scan voor tijdopppervlaktes op deze specifieke dag
+        const foundOverlap = tasks.find(t => 
+          t.teamMemberId === teamMemberId &&
+          t.date === date &&
+          t.status === 'active' &&
+          (t.startTime < endTime && t.endTime > startTime)
+        );
+
+        if (foundOverlap && !regConflictingTask) {
+          setRegConflictingTask(foundOverlap);
+          return; // Blokkeer en toon splits-keuzemenu
+        }
+      }
+    }
+
+    // Geen conflicten? Sla geruisloos op.
+    executeSubmit();
   };
+
+  const activeMemberName = teamMembers.find(m => m.id === teamMemberId)?.name || 'Dit teamlid';
 
   return (
     <div id="modal-overlay" className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in font-sans text-slate-900">
@@ -163,15 +217,56 @@ export default function NieuweTaakModal({
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           
+          {/* MASSA ANNULERING GEVAAR BLOK */}
+          {showMassaWarning && (
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-3 animate-fade-in">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-sm font-bold text-rose-900">Massa-annulering vereist!</h4>
+                  <p className="text-xs text-rose-700 mt-1 leading-relaxed">
+                    {activeMemberName} heeft in deze periode al <strong>{massaConflictCount} actieve ta(a)k(en)</strong> gepland staan.
+                  </p>
+                  <p className="text-xs text-rose-600 mt-1 font-medium">
+                    Als u doorgaat, worden deze taken automatisch gemarkeerd als geannuleerd (grijs).
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1 justify-end">
+                <button type="button" onClick={() => setShowMassaWarning(false)} className="px-3 py-1.5 bg-white border border-rose-200 text-rose-700 text-xs font-bold rounded-lg hover:bg-rose-100">Terug</button>
+                <button type="button" onClick={() => executeSubmit()} className="px-3 py-1.5 bg-rose-600 text-white text-xs font-bold rounded-lg hover:bg-rose-700 shadow-md">Ja, vageer agenda</button>
+              </div>
+            </div>
+          )}
+
+          {/* REGULIER SPLITS / OVERWRITE KEUSER BLOK */}
+          {regConflictingTask && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3 animate-fade-in">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-sm font-bold text-amber-900">Uuroverlapping gedetecteerd!</h4>
+                  <p className="text-xs text-amber-700 mt-1">
+                    Er staat al een boeking tussen <strong>{regConflictingTask.startTime} - {regConflictingTask.endTime}</strong>:<br />
+                    <span className="font-mono bg-amber-100 px-1 rounded text-[11px] font-bold text-amber-800">{regConflictingTask.description || regConflictingTask.subject}</span>
+                  </p>
+                  <p className="text-xs text-amber-800 font-bold mt-2 uppercase tracking-wide text-[10px]">Kies de gewenste actie:</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                <button type="button" onClick={() => setRegConflictingTask(null)} className="p-2 bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-100">↩️ Aanpassen</button>
+                <button type="button" onClick={() => executeSubmit('split')} className="p-2 bg-amber-100 border border-amber-200 text-amber-900 text-xs font-bold rounded-xl hover:bg-amber-200 flex flex-col items-center justify-center gap-1"><Split className="w-4 h-4" />✂️ Splitsen</button>
+                <button type="button" onClick={() => executeSubmit('overwrite')} className="p-2 bg-rose-600 text-white text-xs font-bold rounded-xl hover:bg-rose-700 flex flex-col items-center justify-center gap-1 shadow-md"><RefreshCw className="w-4 h-4" />🗑️ Vervangen</button>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4 bg-transparent relative">
-            
-            {/* STARTDATUM VAK (TRUC) */}
             <div id="field-date" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-blue-500" /> STARTDATUM
               </label>
               
-              {/* Het zichtbare, Europese vakje */}
               <div 
                 onClick={() => { try { startDateRef.current?.showPicker(); } catch(e) {} }}
                 className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 flex justify-between items-center cursor-pointer hover:bg-white transition-colors relative"
@@ -179,7 +274,6 @@ export default function NieuweTaakModal({
                 <span className="font-medium tracking-wide">{formatEurope(date)}</span>
                 <Calendar className="w-4 h-4 text-slate-400" />
                 
-                {/* De onzichtbare aandrijver */}
                 <input
                   type="date"
                   ref={startDateRef}
@@ -191,13 +285,11 @@ export default function NieuweTaakModal({
               </div>
             </div>
 
-            {/* EINDDATUM VAK (TRUC) */}
             <div id="field-end-date" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-blue-500" /> EINDDATUM {!editingTask && '(OPTIONEEL)'}
               </label>
               
-              {/* Het zichtbare, Europese vakje */}
               <div 
                 onClick={() => { if (!editingTask) { try { endDateRef.current?.showPicker(); } catch(e) {} } }}
                 className={`w-full border border-slate-250 rounded-lg px-3 py-2 text-sm flex justify-between items-center transition-colors relative ${editingTask ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-50 text-slate-800 cursor-pointer hover:bg-white'}`}
@@ -205,7 +297,6 @@ export default function NieuweTaakModal({
                 <span className="font-medium tracking-wide">{formatEurope(endDate)}</span>
                 <Calendar className={`w-4 h-4 ${editingTask ? 'text-slate-300' : 'text-slate-400'}`} />
                 
-                {/* De onzichtbare aandrijver */}
                 <input
                   type="date"
                   ref={endDateRef}
@@ -213,18 +304,17 @@ export default function NieuweTaakModal({
                   disabled={!!editingTask}
                   value={endDate}
                   min={date}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  onChange={(e) => { setEndDate(e.target.value); setShowMassaWarning(false); }}
                   className="absolute opacity-0 w-[1px] h-[1px] pointer-events-none overflow-hidden"
                 />
               </div>
             </div>
           </div>
 
-          {/* ... De rest van het formulier blijft identiek ... */}
           <div className="grid grid-cols-3 gap-4 bg-transparent">
             <div className="space-y-1 bg-transparent col-span-2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">TOEWIJZEN AAN</label>
-              <select value={teamMemberId} required disabled={!isSuperuser} onChange={(e) => setTeamMemberId(e.target.value)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400">
+              <select value={teamMemberId} required disabled={!isSuperuser} onChange={(e) => { setTeamMemberId(e.target.value); setRegConflictingTask(null); setShowMassaWarning(false); }} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400">
                 {teamMembers.map((member) => (
                   <option key={member.id} value={member.id}>{member.name} ({member.initials})</option>
                 ))}
@@ -238,29 +328,30 @@ export default function NieuweTaakModal({
 
           <div id="field-subject" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">ONDERWERP</label>
-            <select value={subject} onChange={(e) => setSubject(e.target.value as any)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none">
+            <select value={subject} onChange={(e) => { setSubject(e.target.value as any); setRegConflictingTask(null); setShowMassaWarning(false); }} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none">
               <option value="Todo">Todo</option>
               <option value="Verlof">Verlof</option>
+              <option value="Ziekte">Ziekte</option>
               <option value="Training">Training</option>
               <option value="Meeting">Meeting</option>
             </select>
           </div>
 
           <div id="field-description" className="space-y-1 bg-transparent">
-            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">OMSCHRIJVING {subject === 'Verlof' && '(OPTIONEEL)'}</label>
-            <input type="text" required={subject !== 'Verlof'} placeholder={subject === 'Verlof' ? 'Optioneel (bijv. Doktersbezoek)' : 'Bijv. Project Meeting'} value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none placeholder-slate-400" />
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">OMSCHRIJVING {(subject === 'Verlof' || subject === 'Ziekte') && '(OPTIONEEL)'}</label>
+            <input type="text" required={subject !== 'Verlof' && subject !== 'Ziekte'} placeholder={subject === 'Verlof' ? 'Verlof' : subject === 'Ziekte' ? 'Ziekteverlof' : 'Bijv. Project Meeting'} value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none placeholder-slate-400" />
           </div>
 
           <div className="grid grid-cols-2 gap-4 bg-transparent">
             <div id="field-start" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-blue-500" /> START</label>
-              <select required value={startTime} onChange={(e) => setStartTime(e.target.value)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none cursor-pointer">
+              <select required value={startTime} onChange={(e) => { setStartTime(e.target.value); setRegConflictingTask(null); }} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none cursor-pointer">
                 {ALLOWED_TIMES.map((time) => <option key={`start-${time}`} value={time}>{time}</option>)}
               </select>
             </div>
             <div id="field-end" className="space-y-1 bg-transparent">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-blue-500" /> EINDE</label>
-              <select required value={endTime} onChange={(e) => setEndTime(e.target.value)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none cursor-pointer">
+              <select required value={endTime} onChange={(e) => { setEndTime(e.target.value); setRegConflictingTask(null); }} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none cursor-pointer">
                 {ALLOWED_TIMES.map((time) => <option key={`end-${time}`} value={time}>{time}</option>)}
               </select>
             </div>
@@ -268,15 +359,15 @@ export default function NieuweTaakModal({
 
           <div id="field-priority" className="space-y-1 bg-transparent">
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-blue-500" /> PRIORITEIT</label>
-            <select value={priority} disabled={subject === 'Verlof' || subject === 'Training'} onChange={(e) => setPriority(e.target.value as Priority)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:bg-slate-100 text-slate-700">
-              {(subject === 'Todo' || subject === 'Verlof') && <option value={Priority.CRITICAL}>🔴 Critical / Kritiek</option>}
+            <select value={priority} disabled={subject === 'Verlof' || subject === 'Ziekte' || subject === 'Training'} onChange={(e) => setPriority(e.target.value as Priority)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:bg-slate-100 text-slate-700">
+              {(subject === 'Todo' || subject === 'Verlof' || subject === 'Ziekte') && <option value={Priority.CRITICAL}>🔴 Critical / Kritiek</option>}
               {(subject === 'Todo' || subject === 'Training' || subject === 'Meeting') && <option value={Priority.HIGH}>🟠 High / Hoog</option>}
               {(subject === 'Todo' || subject === 'Meeting') && <option value={Priority.MEDIUM}>🟡 Medium</option>}
               {subject === 'Todo' && <option value={Priority.LOW}>🟢 Low / Laag</option>}
             </select>
           </div>
 
-          {!editingTask && endDate === date && (
+          {!editingTask && endDate === date && !isLeaveOrSickness && (
             <div className="flex items-center gap-2.5 bg-blue-50/50 border border-blue-100 rounded-xl p-3 select-none">
               <input id="checkbox-repeat-weekly" type="checkbox" checked={repeatWeekly} onChange={(e) => setRepeatWeekly(e.target.checked)} className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer" />
               <label htmlFor="checkbox-repeat-weekly" className="text-xs font-bold text-blue-900 cursor-pointer uppercase tracking-wide">🔄 Wekelijks herhalen tot einde jaar</label>
@@ -289,7 +380,7 @@ export default function NieuweTaakModal({
             ) : (
               <button id="btn-annuleren" type="button" onClick={onClose} className="px-6 py-3 border border-slate-250 rounded-lg font-bold text-slate-600 hover:bg-slate-100 transition-colors uppercase tracking-wider text-xs cursor-pointer">Annuleren</button>
             )}
-            <button id="btn-save-task" type="submit" className="flex-1 max-w-[200px] flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-3 px-6 rounded-lg text-sm transition-all shadow-lg shadow-blue-500/20 focus:outline-none cursor-pointer"><Check className="w-4.5 h-4.5" /><span>Opslaan</span></button>
+            <button id="btn-save-task" type="submit" disabled={showMassaWarning || !!regConflictingTask} className="flex-1 max-w-[200px] flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-3 px-6 rounded-lg text-sm transition-all shadow-lg shadow-blue-500/20 focus:outline-none disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed cursor-pointer"><Check className="w-4.5 h-4.5" /><span>Opslaan</span></button>
           </div>
         </form>
       </div>
