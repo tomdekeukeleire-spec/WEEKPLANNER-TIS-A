@@ -564,20 +564,20 @@ export default function App() {
       </main>
 
       {isModalOpen && (
+        {isModalOpen && (
         <NieuweTaakModal 
           onClose={() => setIsModalOpen(false)} 
           onSave={handleSaveTask} 
           onDelete={handleDeleteTask} 
           editingTask={editingTask} 
           defaultDate={selectedDate} 
+          defaultTime={defaultTaskTime}           {/* <--- DEZE HEBBEN WE TOEGEVOEGD! */}
           defaultMemberId={defaultTaskMemberId}
           teamMembers={teamMembersState} 
           isSuperuser={session?.role === 'Superuser'}
           currentUserId={session?.memberId || ''}
-          // NIEUW: De takenlijst meegeven zodat het formulier conflicten kan ontdekken
           tasks={tasks}
         />
-      )}
-    </div>
+      )}    </div>
   );
 }
