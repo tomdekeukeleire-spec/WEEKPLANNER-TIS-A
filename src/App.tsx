@@ -216,9 +216,15 @@ export default function App() {
     }
   };
 
-  const handleAddTaskTrigger = (memberId: string, initialHour?: string) => {
+  const handleAddTaskTrigger = (memberId: string, initialHour?: string, specificDate?: string) => {
     setEditingTask(null);
     const targetId = memberId || (session?.role === 'Superuser' ? teamMembersState[0]?.id : session?.memberId) || '';
+    
+    // Zorg ervoor dat de app overschakelt naar de juiste dag als we vanuit het weekoverzicht klikken
+    if (specificDate) {
+      setSelectedDate(specificDate);
+    }
+    
     setDefaultTaskMemberId(targetId);
     setDefaultTaskTime(initialHour || '08:00');
     setIsModalOpen(true);
