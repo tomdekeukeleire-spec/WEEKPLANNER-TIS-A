@@ -9,6 +9,7 @@ interface WeekOverviewProps {
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   onEditTask: (task: Task) => void;
+  onAddTask: (memberId: string, initialHour?: string, specificDate?: string) => void; 
 }
 
 // Helper om de maandag van de huidige week te vinden
@@ -50,6 +51,7 @@ export default function WeekOverview({
   selectedDate,
   setSelectedDate,
   onEditTask,
+  onAddTask
 }: WeekOverviewProps) {
   const currentMonday = getMonday(selectedDate);
   const weekNum = getWeekNumber(currentMonday);
@@ -95,7 +97,7 @@ export default function WeekOverview({
           </button>
         </div>
         <p className="text-xs text-slate-400 font-medium italic">
-          💡 Klik op een taak-badge om deze direct aan te passen of te verwijderen.
+          💡 Klik op een leeg vak om een taak toe te voegen, of op een taak-badge om te bewerken.
         </p>
       </div>
 
@@ -135,46 +137,28 @@ export default function WeekOverview({
                     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
                   return (
-                    <td key={day.dateStr} className="p-2 border-r border-slate-100 min-h-[80px] align-top relative">
-                      <div className="space-y-1.5">
+                    <td 
+                      key={day.dateStr} 
+                      className="p-2 border-r border-slate-100 min-h-[80px] align-top relative cursor-pointer hover:bg-slate-50 transition-colors"
+                      onClick={() => onAddTask(member.id, '09:00', day.dateStr)}
+                    >
+                      <div className="space-y-1.5 h-full">
                         {dayTasks.length > 0 ? (
                           dayTasks.map((task) => {
-                            const colors = PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.Medium;
+                            
+                            // Toon geannuleerde taken als grijs in het weekoverzicht
+                            const isCancelled = task.status === 'cancelled';
+                            const colors = isCancelled
+                              ? { bg: 'bg-slate-200 opacity-70', border: 'border-slate-300 line-through', text: 'text-slate-500' }
+                              : PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.Medium;
+                              
                             const subjectLabel = task.subject || 'Todo';
 
                             return (
                               <div
                                 key={task.id}
-                                onClick={() => onEditTask(task)}
-                                className={`group p-1.5 rounded-lg border-l-2 text-[10px] font-medium transition-all shadow-sm hover:shadow hover:scale-[1.01] cursor-pointer block overflow-hidden ${colors.bg} ${colors.border} ${colors.text}`}
+                                onClick={(e) => { e.stopPropagation(); onEditTask(task); }}
+                                className={`group p-1.5 rounded-lg border-l-2 text-[10px] font-medium transition-all shadow-sm ${!isCancelled && 'hover:shadow hover:scale-[1.01] cursor-pointer'} block overflow-hidden ${colors.bg} ${colors.border} ${colors.text}`}
                                 title={`Tijd: ${task.startTime} - ${task.endTime}\n${task.description}`}
                               >
-                                <div className="flex justify-between items-center font-bold text-[9px] uppercase tracking-wide opacity-90 truncate">
-                                  <span>{subjectLabel}</span>
-                                  <span className="font-mono text-[8px] font-normal tracking-tight opacity-75">
-                                    {task.startTime}-{task.endTime}
-                                  </span>
-                                </div>
-                                <div className="truncate text-[9px] mt-0.5 opacity-85">
-                                  {task.description}
-                                </div>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <div className="text-[10px] text-slate-300 italic text-center py-4 select-none">
-                            Geen taken
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
+                                <div className="flex justify-between items-center font-bold text-[9px]
