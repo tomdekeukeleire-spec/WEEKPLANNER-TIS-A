@@ -161,4 +161,32 @@ export default function WeekOverview({
                                 className={`group p-1.5 rounded-lg border-l-2 text-[10px] font-medium transition-all shadow-sm ${!isCancelled && 'hover:shadow hover:scale-[1.01] cursor-pointer'} block overflow-hidden ${colors.bg} ${colors.border} ${colors.text}`}
                                 title={`Tijd: ${task.startTime} - ${task.endTime}\n${task.description}`}
                               >
-                                <div className="flex justify-between items-center font-bold text-[9px]
+                                <div className="flex justify-between items-center font-bold text-[9px] uppercase tracking-wide opacity-90 truncate">
+                                  <span>{isCancelled ? '[GEANNULEERD]' : subjectLabel}</span>
+                                  <span className="font-mono text-[8px] font-normal tracking-tight opacity-75">
+                                    {task.startTime}-{task.endTime}
+                                  </span>
+                                </div>
+                                <div className="truncate text-[9px] mt-0.5 opacity-85">
+                                  {task.description}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-[10px] text-slate-300 italic text-center py-4 select-none pointer-events-none">
+                            Geen taken
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
