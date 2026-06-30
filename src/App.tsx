@@ -570,13 +570,14 @@ export default function App() {
           onDelete={handleDeleteTask} 
           editingTask={editingTask} 
           defaultDate={selectedDate} 
-          defaultTime={defaultTaskTime}           {/* <--- DEZE HEBBEN WE TOEGEVOEGD! */}
+          defaultTime={defaultTaskTime}
           defaultMemberId={defaultTaskMemberId}
           teamMembers={teamMembersState} 
           isSuperuser={session?.role === 'Superuser'}
           currentUserId={session?.memberId || ''}
           tasks={tasks}
         />
-      )}    </div>
+      )}
+    </div>
   );
 }
