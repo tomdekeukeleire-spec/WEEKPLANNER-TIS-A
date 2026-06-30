@@ -8,6 +8,7 @@ interface NieuweTaakModalProps {
   onDelete?: (taskId: string) => void;
   editingTask?: Task | null;
   defaultDate?: string;
+  defaultTime?: string; // Toegevoegd zodat de prop herkend wordt!
   defaultMemberId?: string;
   teamMembers: TeamMember[];
   isSuperuser: boolean;
@@ -45,6 +46,7 @@ export default function NieuweTaakModal({
   onDelete,
   editingTask,
   defaultDate,
+  defaultTime,
   defaultMemberId,
   teamMembers,
   isSuperuser,
@@ -60,8 +62,19 @@ export default function NieuweTaakModal({
   const [week, setWeek] = useState<number>(24);
   const [subject, setSubject] = useState<'Todo' | 'Verlof' | 'Ziekte' | 'Training' | 'Meeting'>('Todo');
   const [description, setDescription] = useState<string>('');
-  const [startTime, setStartTime] = useState<string>('08:00');
-  const [endTime, setEndTime] = useState<string>('09:00');
+  
+  // Maak gebruik van defaultTime als deze wordt meegegeven, anders '08:00'
+  const [startTime, setStartTime] = useState<string>(defaultTime || '08:00');
+  
+  // Bereken logische eindtijd (+1 uur) op basis van de starttijd
+  const [endTime, setEndTime] = useState<string>(() => {
+    if (defaultTime) {
+      const idx = ALLOWED_TIMES.indexOf(defaultTime);
+      return idx !== -1 && idx + 2 < ALLOWED_TIMES.length ? ALLOWED_TIMES[idx + 2] : '17:00';
+    }
+    return '09:00';
+  });
+  
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
   const [repeatWeekly, setRepeatWeekly] = useState<boolean>(false);
 
@@ -71,6 +84,9 @@ export default function NieuweTaakModal({
 
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
+
+  // DE OPLOSSING VOOR HET WITTE SCHERM: De variabele globaal definiëren in het component
+  const isLeaveOrSickness = subject === 'Verlof' || subject === 'Ziekte';
 
   useEffect(() => {
     setWeek(getISOWeek(date));
@@ -128,7 +144,6 @@ export default function NieuweTaakModal({
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const isPeriode = !editingTask && endDate && endDate !== date;
-    const isLeaveOrSickness = subject === 'Verlof' || subject === 'Ziekte';
 
     if (!isPeriode) {
       const dateParts = date.split('-');
@@ -307,83 +322,4 @@ export default function NieuweTaakModal({
           <div className="grid grid-cols-3 gap-4 bg-transparent">
             <div className="space-y-1 bg-transparent col-span-2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">TOEWIJZEN AAN</label>
-              <select value={teamMemberId} required disabled={!isSuperuser} onChange={(e) => { setTeamMemberId(e.target.value); setRegConflictingTask(null); setShowMassaWarning(false); }} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400">
-                {teamMembers.map((member) => (
-                  <option key={member.id} value={member.id}>{member.name} ({member.initials})</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1 bg-transparent">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">WEEK</label>
-              <input type="number" disabled value={week} className="w-full border border-slate-200 bg-slate-100 rounded-lg px-3 py-2 text-sm text-slate-500 font-mono text-center cursor-not-allowed" />
-            </div>
-          </div>
-
-          <div id="field-subject" className="space-y-1 bg-transparent">
-            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">ONDERWERP</label>
-            <select value={subject} onChange={(e) => { setSubject(e.target.value as any); setRegConflictingTask(null); setShowMassaWarning(false); }} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none">
-              <option value="Todo">Todo</option>
-              <option value="Verlof">Verlof</option>
-              <option value="Ziekte">Ziekte</option>
-              <option value="Training">Training</option>
-              <option value="Meeting">Meeting</option>
-            </select>
-          </div>
-
-          <div id="field-description" className="space-y-1 bg-transparent">
-            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">OMSCHRIJVING {(subject === 'Verlof' || subject === 'Ziekte') && '(OPTIONEEL)'}</label>
-            <input type="text" required={subject !== 'Verlof' && subject !== 'Ziekte'} placeholder={subject === 'Verlof' ? 'Verlof' : subject === 'Ziekte' ? 'Ziekteverlof' : 'Bijv. Project Meeting'} value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none placeholder-slate-400" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 bg-transparent">
-            <div id="field-start" className="space-y-1 bg-transparent">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-blue-500" /> START</label>
-              <select required value={startTime} onChange={(e) => { setStartTime(e.target.value); setRegConflictingTask(null); }} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none cursor-pointer">
-                {ALLOWED_TIMES.map((time) => <option key={`start-${time}`} value={time}>{time}</option>)}
-              </select>
-            </div>
-            <div id="field-end" className="space-y-1 bg-transparent">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-blue-500" /> EINDE</label>
-              <select required value={endTime} onChange={(e) => { setEndTime(e.target.value); setRegConflictingTask(null); }} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none cursor-pointer">
-                {ALLOWED_TIMES.map((time) => <option key={`end-${time}`} value={time}>{time}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div id="field-priority" className="space-y-1 bg-transparent">
-            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-blue-500" /> PRIORITEIT</label>
-            <select value={priority} disabled={subject === 'Verlof' || subject === 'Ziekte' || subject === 'Training'} onChange={(e) => setPriority(e.target.value as Priority)} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:bg-slate-100 text-slate-700">
-              {(subject === 'Todo' || subject === 'Verlof' || subject === 'Ziekte') && <option value={Priority.CRITICAL}>🔴 Critical / Kritiek</option>}
-              {(subject === 'Todo' || subject === 'Training' || subject === 'Meeting') && <option value={Priority.HIGH}>🟠 High / Hoog</option>}
-              {(subject === 'Todo' || subject === 'Meeting') && <option value={Priority.MEDIUM}>🟡 Medium</option>}
-              {subject === 'Todo' && <option value={Priority.LOW}>🟢 Low / Laag</option>}
-            </select>
-          </div>
-
-          {!editingTask && endDate === date && !isLeaveOrSickness && (
-            <div className="flex items-center gap-2.5 bg-blue-50/50 border border-blue-100 rounded-xl p-3 select-none">
-              <input id="checkbox-repeat-weekly" type="checkbox" checked={repeatWeekly} onChange={(e) => setRepeatWeekly(e.target.checked)} className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer" />
-              <label htmlFor="checkbox-repeat-weekly" className="text-xs font-bold text-blue-900 cursor-pointer uppercase tracking-wide">🔄 Wekelijks herhalen tot einde jaar</label>
-            </div>
-          )}
-
-          <div id="modal-actions" className="pt-5 mt-4 flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 -mx-6 -mb-6 p-6">
-            {editingTask && onDelete ? (
-              <button id="btn-delete-task" type="button" onClick={() => onDelete(editingTask.id)} className="flex items-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-4 py-2.5 rounded-lg border border-rose-200 text-sm transition-all cursor-pointer"><Trash2 className="w-4 h-4" /><span>Wissen</span></button>
-            ) : (
-              <button id="btn-annuleren" type="button" onClick={onClose} className="px-6 py-3 border border-slate-250 rounded-lg font-bold text-slate-600 hover:bg-slate-100 transition-colors uppercase tracking-wider text-xs cursor-pointer">Annuleren</button>
-            )}
-            <button id="btn-save-task" type="submit" disabled={showMassaWarning || !!regConflictingTask} className="flex-1 max-w-[200px] flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-3 px-6 rounded-lg text-sm transition-all shadow-lg shadow-blue-500/20 focus:outline-none disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed cursor-pointer"><Check className="w-4.5 h-4.5" /><span>Opslaan</span></button>
-          </div>
-        </form>
-      </div>
-
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .animate-fade-in { animation: fadeIn 0.15s ease-out forwards; }
-        .animate-scale-up { animation: scaleUp 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
-      `}</style>
-    </div>
-  );
-}
+              <select value={teamMemberId} required disabled={!isSuperuser} onChange={(e) => { setTeamMemberId(e.target.value); setRegConflictingTask(null); setShowMassaWarning(false); }} className="w-full border border-slate-250 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400
