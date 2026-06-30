@@ -564,7 +564,6 @@ export default function App() {
       </main>
 
       {isModalOpen && (
-        {isModalOpen && (
         <NieuweTaakModal 
           onClose={() => setIsModalOpen(false)} 
           onSave={handleSaveTask} 
