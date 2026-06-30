@@ -541,7 +541,7 @@ export default function App() {
         {activeTab === 'dag' ? (
           <TeamPlanner tasks={tasks} onAddTask={handleAddTaskTrigger} onEditTask={handleEditTaskTrigger} selectedDate={selectedDate} setSelectedDate={setSelectedDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} activeUsers={[]} teamMembers={teamMembersState} />
         ) : activeTab === 'week' ? (
-          <WeekOverview tasks={tasks} teamMembers={teamMembersState} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onEditTask={handleEditTaskTrigger} />
+          <WeekOverview tasks={tasks} teamMembers={teamMembersState} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onEditTask={handleEditTaskTrigger} onAddTask={handleAddTaskTrigger} />
         ) : activeTab === 'analytics' ? (
           <PlannerCanvas tasks={tasks} teamMembers={teamMembersState} />
         ) : activeTab === 'archive' ? (
