@@ -119,7 +119,7 @@ export default function NieuweTaakModal({
     }
   }, [editingTask]);
 
-  const executeSubmit = (resolution?: 'split' | 'overwrite') => {
+  const executeSubmit = (resolution?: 'split' | 'overwrite', targetStatus?: 'active' | 'cancelled') => {
     const isPeriode = !editingTask && endDate && endDate !== date;
     
     const payload: any = {
@@ -134,13 +134,14 @@ export default function NieuweTaakModal({
       priority,
       repeatWeekly: !editingTask ? repeatWeekly : false,
       conflictResolution: resolution,
-      conflictTaskId: regConflictingTask?.id
+      conflictTaskId: regConflictingTask?.id,
+      // NIEUW: Geef de status mee. Als er niets wordt meegegeven, wordt hij 'active'
+      status: targetStatus || 'active' 
     };
 
     if (editingTask) payload.id = editingTask.id;
     onSave(payload);
   };
-
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const isPeriode = !editingTask && endDate && endDate !== date;
