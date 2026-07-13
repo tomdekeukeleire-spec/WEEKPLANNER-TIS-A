@@ -155,9 +155,9 @@ export default function TeamPlanner({
                       const widthPercent = ((tDecEnd - tDecStart) / 9) * 100;
 
                       let colorClass = 'bg-amber-500 text-white border-amber-600'; 
-                      if (task.priority === Priority.CRITICAL) colorClass = 'bg-rose-600 text-white border-rose-700'; 
-                      if (task.priority === Priority.HIGH) colorClass = 'bg-orange-600 text-white border-orange-700'; 
-                      if (task.priority === Priority.LOW) colorClass = 'bg-emerald-500 text-white border-emerald-600'; 
+                      if (task.priority === Priority.CRITICAL) colorClass = 'bg-rose-600 text-white border-rose-750'; 
+                      if (task.priority === Priority.HIGH) colorClass = 'bg-orange-600 text-white border-orange-750'; 
+                      if (task.priority === Priority.LOW) colorClass = 'bg-emerald-500 text-white border-emerald-650'; 
 
                       if (task.subject === 'Verlof') colorClass = 'bg-rose-600 text-white border-rose-700';
                       if (task.subject === 'Ziekte') colorClass = 'bg-purple-600 text-white border-purple-700';
