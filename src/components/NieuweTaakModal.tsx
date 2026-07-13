@@ -174,12 +174,15 @@ export default function NieuweTaakModal({
 
     if (!editingTask) {
       if (isLeaveOrSickness) {
-        const count = tasks.filter(t => 
-          t.teamMemberId === teamMemberId &&
-          t.date >= date &&
-          t.date <= endDate &&
-          t.status === 'active'
-        ).length;
+        const count = tasks.filter(t => {
+          // 1. Check persoon, status en datum
+          if (t.teamMemberId !== teamMemberId || t.status !== 'active' || t.date < date || t.date > endDate) {
+            return false;
+          }
+          
+          // 2. Check de overlappende uren (exact zoals in App.tsx)
+          return t.startTime < endTime && t.endTime > startTime;
+        }).length;
 
         if (count > 0 && !showMassaWarning) {
           setMassaConflictCount(count);
