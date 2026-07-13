@@ -253,13 +253,8 @@ export default function App() {
           return false;
         }
 
-        // 2. Tijd-check: Als het verlof op 1 specifieke dag is (zoals een halve dag), check overlappende uren
-        if (t.date === initialDate && t.date === endDate) {
-          return t.startTime < taskPayload.endTime && t.endTime > taskPayload.startTime;
-        }
-
-        // 3. Als het verlof over meerdere dagen loopt, gaan we ervan uit dat de hele dag bezet is
-        return true;
+        // 2. Tijd-check: Vergelijk ALTIJD de uren, of het nu om 1 dag of een lange periode gaat.
+        return t.startTime < taskPayload.endTime && t.endTime > taskPayload.startTime;
       });
 
       if (conflicts.length > 0) {
