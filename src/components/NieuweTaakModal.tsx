@@ -175,13 +175,15 @@ export default function NieuweTaakModal({
     if (!editingTask) {
       if (isLeaveOrSickness) {
         const count = tasks.filter(t => {
-          // 1. Check persoon, status en datum
           if (t.teamMemberId !== teamMemberId || t.status !== 'active' || t.date < date || t.date > endDate) {
             return false;
           }
-          
-          // 2. Check de overlappende uren (exact zoals in App.tsx)
-          return t.startTime < endTime && t.endTime > startTime;
+          // Veilige tijd-check met kommagetallen (zodat '9' niet groter is dan '17')
+          const tStart = parseFloat(t.startTime.replace(':', '.'));
+          const tEnd = parseFloat(t.endTime.replace(':', '.'));
+          const pStart = parseFloat(startTime.replace(':', '.'));
+          const pEnd = parseFloat(endTime.replace(':', '.'));
+          return tStart < pEnd && tEnd > pStart;
         }).length;
 
         if (count > 0 && !showMassaWarning) {
@@ -190,12 +192,16 @@ export default function NieuweTaakModal({
           return;
         }
       } else {
-        const foundOverlap = tasks.find(t => 
-          t.teamMemberId === teamMemberId &&
-          t.date === date &&
-          t.status === 'active' &&
-          (t.startTime < endTime && t.endTime > startTime)
-        );
+        const foundOverlap = tasks.find(t => {
+          if (t.teamMemberId !== teamMemberId || t.date !== date || t.status !== 'active') return false;
+          
+          // Veilige tijd-check voor normale taken
+          const tStart = parseFloat(t.startTime.replace(':', '.'));
+          const tEnd = parseFloat(t.endTime.replace(':', '.'));
+          const pStart = parseFloat(startTime.replace(':', '.'));
+          const pEnd = parseFloat(endTime.replace(':', '.'));
+          return tStart < pEnd && tEnd > pStart;
+        });
 
         if (foundOverlap && !regConflictingTask) {
           const isExistingLeave = foundOverlap.subject === 'Verlof' || foundOverlap.subject === 'Ziekte';
