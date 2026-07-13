@@ -165,7 +165,7 @@ export default function TeamPlanner({
                       const isCancelled = task.status === 'cancelled';
                       
                       const finalColorStyle = isCancelled
-                        ? 'bg-slate-200 border-slate-400 text-slate-700 opacity-95 line-through pointer-events-none'
+                        ? 'bg-slate-200 border-slate-400 text-slate-700 opacity-95 line-through'
                         : colorClass;
 
                       const topOffset = isCancelled 
@@ -175,7 +175,7 @@ export default function TeamPlanner({
                       return (
                         <div
                           key={task.id}
-                          onClick={(e) => { e.stopPropagation(); if (!isCancelled) onEditTask(task); }}
+                          onClick={(e) => { e.stopPropagation(); onEditTask(task); }}
                           style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
                           className={`absolute ${topOffset} border ${finalColorStyle} rounded-md px-2 flex flex-col justify-center transition-all cursor-pointer select-none overflow-hidden group/item`}
                         >
