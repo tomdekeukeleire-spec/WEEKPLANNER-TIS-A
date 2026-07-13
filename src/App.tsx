@@ -247,12 +247,20 @@ export default function App() {
     // -------------------------------------------------------------
     if (isLeaveOrSickness && !taskPayload.id) {
       // Zoek alle actieve, overlappende taken voor deze medewerker in de periode
-      const conflicts = tasks.filter(t => 
-        t.teamMemberId === taskPayload.teamMemberId &&
-        t.date >= initialDate &&
-        t.date <= endDate &&
-        t.status === 'active'
-      );
+      const conflicts = tasks.filter(t => {
+        // 1. Is het dezelfde persoon, een actieve taak, en valt het binnen de datums?
+        if (t.teamMemberId !== taskPayload.teamMemberId || t.status !== 'active' || t.date < initialDate || t.date > endDate) {
+          return false;
+        }
+
+        // 2. Tijd-check: Als het verlof op 1 specifieke dag is (zoals een halve dag), check overlappende uren
+        if (t.date === initialDate && t.date === endDate) {
+          return t.startTime < taskPayload.endTime && t.endTime > taskPayload.startTime;
+        }
+
+        // 3. Als het verlof over meerdere dagen loopt, gaan we ervan uit dat de hele dag bezet is
+        return true;
+      });
 
       if (conflicts.length > 0) {
         const conflictIds = conflicts.map(c => c.id);
