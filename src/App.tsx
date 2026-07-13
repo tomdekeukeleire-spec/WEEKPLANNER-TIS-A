@@ -248,13 +248,17 @@ export default function App() {
     if (isLeaveOrSickness && !taskPayload.id) {
       // Zoek alle actieve, overlappende taken voor deze medewerker in de periode
       const conflicts = tasks.filter(t => {
-        // 1. Is het dezelfde persoon, een actieve taak, en valt het binnen de datums?
         if (t.teamMemberId !== taskPayload.teamMemberId || t.status !== 'active' || t.date < initialDate || t.date > endDate) {
           return false;
         }
 
-        // 2. Tijd-check: Vergelijk ALTIJD de uren, of het nu om 1 dag of een lange periode gaat.
-        return t.startTime < taskPayload.endTime && t.endTime > taskPayload.startTime;
+        // 2. Veilige tijd-check: we gebruiken de ingebouwde parseTimeToDecimal functie
+        const tStart = parseTimeToDecimal(t.startTime);
+        const tEnd = parseTimeToDecimal(t.endTime);
+        const pStart = parseTimeToDecimal(taskPayload.startTime);
+        const pEnd = parseTimeToDecimal(taskPayload.endTime);
+
+        return tStart < pEnd && tEnd > pStart;
       });
 
       if (conflicts.length > 0) {
