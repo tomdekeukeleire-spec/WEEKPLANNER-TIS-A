@@ -384,12 +384,23 @@ export default function NieuweTaakModal({
           )}
 
           <div id="modal-actions" className="pt-5 mt-4 flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 -mx-6 -mb-6 p-6">
-            {editingTask && onDelete ? (
-              <button id="btn-delete-task" type="button" onClick={() => onDelete(editingTask.id)} className="flex items-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-4 py-2.5 rounded-lg border border-rose-200 text-sm transition-all cursor-pointer"><Trash2 className="w-4 h-4" /><span>Wissen</span></button>
+            {editingTask ? (
+              <div className="flex gap-2">
+                {onDelete && (
+                  <button id="btn-delete-task" type="button" onClick={() => onDelete(editingTask.id)} className="flex items-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-2.5 rounded-lg border border-rose-200 text-sm transition-all cursor-pointer">
+                    <Trash2 className="w-4 h-4" /><span>Wissen</span>
+                  </button>
+                )}
+                <button id="btn-cancel-task" type="button" onClick={() => executeSubmit(undefined, 'cancelled')} className="flex items-center gap-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-3 py-2.5 rounded-lg border border-slate-300 text-sm transition-all cursor-pointer">
+                  <X className="w-4 h-4" /><span>Annuleren</span>
+                </button>
+              </div>
             ) : (
-              <button id="btn-annuleren" type="button" onClick={onClose} className="px-6 py-3 border border-slate-250 rounded-lg font-bold text-slate-600 hover:bg-slate-100 transition-colors uppercase tracking-wider text-xs cursor-pointer">Annuleren</button>
+              <button id="btn-annuleren" type="button" onClick={onClose} className="px-6 py-3 border border-slate-250 rounded-lg font-bold text-slate-600 hover:bg-slate-100 transition-colors uppercase tracking-wider text-xs cursor-pointer">Sluiten</button>
             )}
-            <button id="btn-save-task" type="submit" disabled={showMassaWarning || !!regConflictingTask} className="flex-1 max-w-[200px] flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-3 px-6 rounded-lg text-sm transition-all shadow-lg shadow-blue-500/20 focus:outline-none disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed cursor-pointer"><Check className="w-4.5 h-4.5" /><span>Opslaan</span></button>
+            <button id="btn-save-task" type="submit" disabled={showMassaWarning || !!regConflictingTask} className="flex-1 max-w-[200px] flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-3 px-6 rounded-lg text-sm transition-all shadow-lg shadow-blue-500/20 focus:outline-none disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed cursor-pointer">
+              <Check className="w-4.5 h-4.5" /><span>Opslaan</span>
+            </button>
           </div>
         </form>
       </div>
