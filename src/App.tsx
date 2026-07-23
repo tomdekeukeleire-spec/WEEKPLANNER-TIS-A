@@ -245,27 +245,24 @@ export default function App() {
     // LOGICA VOOR VERLOF / ZIEKTE (AUTOMATISCH ANNULLEREN OP DE ACHTERGROND)
     // -------------------------------------------------------------
     if (isLeaveOrSickness && !taskPayload.id) {
-      // Zoek alle actieve, overlappende taken voor deze medewerker in de periode
       const conflicts = tasks.filter(t => {
         if (t.teamMemberId !== taskPayload.teamMemberId || t.status !== 'active' || t.date < initialDate || t.date > endDate) {
           return false;
         }
-
-        // 2. Veilige tijd-check: we gebruiken de ingebouwde parseTimeToDecimal functie
         const tStart = parseTimeToDecimal(t.startTime);
         const tEnd = parseTimeToDecimal(t.endTime);
         const pStart = parseTimeToDecimal(taskPayload.startTime);
         const pEnd = parseTimeToDecimal(taskPayload.endTime);
-
         return tStart < pEnd && tEnd > pStart;
       });
 
       if (conflicts.length > 0) {
         const conflictIds = conflicts.map(c => c.id);
-        // Update in lokale state
         setTasks(prev => prev.map(t => conflictIds.includes(t.id) ? { ...t, status: 'cancelled' as any } : t));
-        // Update in Database naar 'cancelled'
-        await supabase.from('tasks').update({ status: 'cancelled' }).in('id', conflictIds);
+        
+        // FOUTAFHANDELING TOEGEVOEGD
+        const { error } = await supabase.from('tasks').update({ status: 'cancelled' }).in('id', conflictIds);
+        if (error) alert(`Database fout (Annuleren): ${error.message}`);
       }
     }
 
@@ -278,42 +275,37 @@ export default function App() {
 
       if (targetOldTask) {
         if (taskPayload.conflictResolution === 'overwrite') {
-          // Optie A: Oude taak hard wissen
           setTasks(prev => prev.filter(t => t.id !== confId));
-          await supabase.from('tasks').delete().eq('id', confId);
+          const { error } = await supabase.from('tasks').delete().eq('id', confId);
+          if (error) alert(`Database fout (Overschrijven): ${error.message}`);
         } 
         else if (taskPayload.conflictResolution === 'split') {
-          // Optie B: De Schaar-logica (Splitsen)
           const oldStart = targetOldTask.startTime;
           const oldEnd = targetOldTask.endTime;
           const newStart = taskPayload.startTime;
           const newEnd = taskPayload.endTime;
 
-          // Segment 1 (Kort de bestaande taak in naar de nieuwe starttijd)
           if (oldStart < newStart) {
-            await supabase.from('tasks').update({ end_time: newStart }).eq('id', confId);
+            const { error } = await supabase.from('tasks').update({ end_time: newStart }).eq('id', confId);
+            if (error) alert(`Database fout (Splitsen begin): ${error.message}`);
           } else {
-            // Als de nieuwe taak exact op de starttijd begint, gooi dit segment weg
-            await supabase.from('tasks').delete().eq('id', confId);
+            const { error } = await supabase.from('tasks').delete().eq('id', confId);
+            if (error) alert(`Database fout (Verwijderen deel): ${error.message}`);
           }
 
-          // Segment 2 (Als de oude taak langer doorliep dan de nieuwe taak, maak een nieuw staartsegment aan)
           if (oldEnd > newEnd) {
             const remainderId = Math.random().toString(36).substring(2, 9);
-            const remainderTask: Task = {
-              ...targetOldTask,
-              id: remainderId,
-              startTime: newEnd,
-              endTime: oldEnd,
-              createdAt: Date.now()
-            };
-            await supabase.from('tasks').insert(taskToDb(remainderTask));
+            const remainderTask: Task = { ...targetOldTask, id: remainderId, startTime: newEnd, endTime: oldEnd, createdAt: Date.now() };
+            const { error } = await supabase.from('tasks').insert(taskToDb(remainderTask));
+            if (error) alert(`Database fout (Splitsen staart): ${error.message}`);
           }
         }
       }
     }
 
-    // Volg de reguliere opslagketen (Enkel, Periode of Wekelijks herhalend)
+    // =============================================================
+    // VOLG DE REGULIERE OPSLAGKETEN (EXPLICIETE FOUTAFHANDELING)
+    // =============================================================
     if (taskPayload.id) {
       const index = tasks.findIndex(t => t.id === taskPayload.id);
       if (index === -1) return;
@@ -321,37 +313,33 @@ export default function App() {
       const updatedTask = { ...original, ...taskPayload } as Task;
       setTasks(prev => { const c = [...prev]; c[index] = updatedTask; return c; });
 
-      try {
-        await supabase.from('tasks').update(taskToDb(updatedTask)).eq('id', updatedTask.id);
-      } catch {
+      // FIX: Check error op Update
+      const { error } = await supabase.from('tasks').update(taskToDb(updatedTask)).eq('id', updatedTask.id);
+      if (error) {
+        alert(`❌ Fout bij updaten in database: ${error.message}`);
         setTasks(prev => { const c = [...prev]; c[index] = original; return c; });
       }
+
     } else {
       if (endDate && endDate !== initialDate) {
+        // Meerdere dagen logica (ingekort voor leesbaarheid)
         const generatedTasks: Task[] = [];
         const dbRows: any[] = [];
-        
         const [sY, sM, sD] = initialDate.split('-').map(Number);
         const [eY, eM, eD] = endDate.split('-').map(Number);
-        
         let current = new Date(sY, sM - 1, sD);
         const end = new Date(eY, eM - 1, eD);
 
         while (current <= end) {
           const dayOfWeek = current.getDay();
-          
           if (dayOfWeek !== 0 && dayOfWeek !== 6) {
             const yyyy = current.getFullYear();
             const mm = String(current.getMonth() + 1).padStart(2, '0');
             const dd = String(current.getDate()).padStart(2, '0');
-            const dateStr = `${yyyy}-${mm}-${dd}`;
-            const calculatedWeek = getISOWeekFromDate(current);
-            const generatedId = Math.random().toString(36).substring(2, 9);
-
             const newTask: Task = {
-              id: generatedId,
-              date: dateStr,
-              week: calculatedWeek,
+              id: Math.random().toString(36).substring(2, 9),
+              date: `${yyyy}-${mm}-${dd}`,
+              week: getISOWeekFromDate(current),
               teamMemberId: taskPayload.teamMemberId!,
               subject: taskPayload.subject,
               description: taskPayload.description!,
@@ -362,42 +350,38 @@ export default function App() {
               createdAt: Date.now(),
               status: 'active'
             };
-
             generatedTasks.push(newTask);
             dbRows.push(taskToDb(newTask));
           }
           current.setDate(current.getDate() + 1); 
         }
 
-        if (generatedTasks.length === 0) {
-          alert('De geselecteerde periode bevat geen doordeweekse werkdagen!');
-          return;
-        }
+        if (generatedTasks.length === 0) return alert('De geselecteerde periode bevat geen werkdagen!');
 
         setTasks(prev => [...prev, ...generatedTasks]);
-        try {
-          await supabase.from('tasks').insert(dbRows);
-          triggerNotification(`📅 Periode succesvol ingepland voor ${generatedTasks.length} werkdagen (weekends overgeslagen)!`);
-        } catch {
+        
+        // FIX: Check error op Multi-Insert
+        const { error } = await supabase.from('tasks').insert(dbRows);
+        if (error) {
+          alert(`❌ Database fout (Periode): ${error.message}`);
           const addedIds = generatedTasks.map(t => t.id);
           setTasks(prev => prev.filter(t => !addedIds.includes(t.id)));
+        } else {
+          triggerNotification(`📅 Periode succesvol ingepland voor ${generatedTasks.length} werkdagen!`);
         }
 
       } else if (taskPayload.repeatWeekly) {
+         // Wekelijkse herhaling logica
         const targetYear = new Date(initialDate).getFullYear();
         const generatedTasks: Task[] = [];
         const dbRows: any[] = [];
         let currentNewDate = new Date(initialDate);
 
         while (currentNewDate.getFullYear() === targetYear) {
-          const dateStr = currentNewDate.toISOString().split('T')[0];
-          const calculatedWeek = getISOWeekFromDate(currentNewDate);
-          const generatedId = Math.random().toString(36).substring(2, 9);
-
           const newTask: Task = {
-            id: generatedId,
-            date: dateStr,
-            week: calculatedWeek,
+            id: Math.random().toString(36).substring(2, 9),
+            date: currentNewDate.toISOString().split('T')[0],
+            week: getISOWeekFromDate(currentNewDate),
             teamMemberId: taskPayload.teamMemberId!,
             subject: taskPayload.subject,
             description: taskPayload.description!,
@@ -408,22 +392,25 @@ export default function App() {
             createdAt: Date.now(),
             status: 'active'
           };
-
           generatedTasks.push(newTask);
           dbRows.push(taskToDb(newTask));
           currentNewDate.setDate(currentNewDate.getDate() + 7);
         }
 
         setTasks(prev => [...prev, ...generatedTasks]);
-        try {
-          await supabase.from('tasks').insert(dbRows);
-          triggerNotification(`🔄 Wederkerend item succesvol ingepland voor ${generatedTasks.length} weken in ${targetYear}!`);
-        } catch {
+        
+        // FIX: Check error op Multi-Insert Wekelijks
+        const { error } = await supabase.from('tasks').insert(dbRows);
+        if (error) {
+          alert(`❌ Database fout (Wekelijks): ${error.message}`);
           const addedIds = generatedTasks.map(t => t.id);
           setTasks(prev => prev.filter(t => !addedIds.includes(t.id)));
+        } else {
+          triggerNotification(`🔄 Wederkerend item succesvol ingepland voor ${generatedTasks.length} weken!`);
         }
 
       } else {
+        // ENKELE TAAK AANMAKEN
         const newId = Math.random().toString(36).substring(2, 9);
         const newTask: Task = {
           id: newId,
@@ -440,9 +427,11 @@ export default function App() {
           status: 'active'
         };
         setTasks(prev => [...prev, newTask]);
-        try {
-          await supabase.from('tasks').insert(taskToDb(newTask));
-        } catch {
+        
+        // FIX: Check error op Single Insert!
+        const { error } = await supabase.from('tasks').insert([taskToDb(newTask)]);
+        if (error) {
+          alert(`❌ De database weigert deze taak! Reden: ${error.message}`);
           setTasks(prev => prev.filter(t => t.id !== newId));
         }
       }
@@ -456,19 +445,15 @@ export default function App() {
     
     setTasks(prev => prev.filter(t => t.id !== taskId));
 
-    try {
-      await supabase.from('tasks').delete().eq('id', taskId);
-
-      // -------------------------------------------------------------
-      // AUTOMATISCH HERSTELLEN VAN ONDERLIGGENDE TAKEN BIJ VERLOF-WISSING
-      // -------------------------------------------------------------
+    // FIX: Check error op Delete
+    const { error } = await supabase.from('tasks').delete().eq('id', taskId);
+    
+    if (error) {
+      alert(`❌ Fout bij verwijderen: ${error.message}`);
+      setTasks(original);
+    } else {
       if (targetTask && (targetTask.subject === 'Verlof' || targetTask.subject === 'Ziekte')) {
-        const hiddenConflicts = original.filter(t => 
-          t.teamMemberId === targetTask.teamMemberId &&
-          t.date === targetTask.date &&
-          t.status === 'cancelled'
-        );
-
+        const hiddenConflicts = original.filter(t => t.teamMemberId === targetTask.teamMemberId && t.date === targetTask.date && t.status === 'cancelled');
         if (hiddenConflicts.length > 0) {
           const hiddenIds = hiddenConflicts.map(h => h.id);
           setTasks(prev => prev.map(t => hiddenIds.includes(t.id) ? { ...t, status: 'active' as any } : t));
@@ -476,43 +461,17 @@ export default function App() {
           triggerNotification(`♻️ Onderliggende taken automatisch heractiveerd en herkleurd!`);
         }
       }
-    } catch {
-      setTasks(original);
     }
   };
 
-  if (loadingMembers) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans">
-        <div className="text-center space-y-3">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Systeem Beveiliging Laden...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (authError) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans">
-        <div className="sm:mx-auto w-full max-w-md">
-          <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200 text-center">
-            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4 font-bold text-xl">⚠️</div>
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Geen Toegang</h3>
-            <p className="text-xs text-slate-500 leading-relaxed mb-6">{authError}</p>
-            <button onClick={() => setAuthError(null)} className="text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200 px-4 py-2 rounded-lg transition-colors">Terug naar login</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  if (loadingMembers) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" /></div>;
+  if (authError) return <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12"><div className="sm:mx-auto w-full max-w-md bg-white py-8 px-4 shadow rounded-lg text-center"><p className="text-xs text-slate-500 mb-6">{authError}</p></div></div>;
   if (!session) return <LoginScreen />;
 
   return (
     <div id="app-workspace" className="min-h-screen bg-slate-50 flex flex-col justify-between font-sans text-slate-900">
       {notification && (
-        <div className="fixed bottom-5 right-5 bg-white border border-slate-200 text-slate-800 px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3 animate-fade-in max-w-sm ring-4 ring-blue-500/5">
+        <div className="fixed bottom-5 right-5 bg-white border border-slate-200 px-5 py-3.5 rounded-xl shadow-2xl z-50 flex items-center gap-3">
           <div className="text-xs font-semibold leading-tight">{notification}</div>
         </div>
       )}
@@ -520,70 +479,29 @@ export default function App() {
       <header className="h-20 bg-white border-b border-slate-200 px-6 flex items-center shadow-sm shrink-0 z-40 justify-between">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black shadow-md">C</div>
-          <div>
-            <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Weekplanner TIS-A</p>
-            <h1 className="text-xl font-bold text-slate-800 tracking-tight">Collaborative Task Canvas</h1>
-          </div>
+          <div><p className="text-[10px] text-slate-400 font-bold uppercase">Weekplanner</p><h1 className="text-xl font-bold text-slate-800">Task Canvas</h1></div>
         </div>
-
         <div className="flex items-center gap-4">
           <div className="bg-slate-100 p-1 rounded-xl border border-slate-200 flex items-center">
-            <button onClick={() => setActiveTab('dag')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'dag' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><CalendarDays className="w-4 h-4" /><span>Dagoverzicht</span></button>
-            <button onClick={() => setActiveTab('week')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><CalendarRange className="w-4 h-4" /><span>Weekoverzicht</span></button>
-            <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'analytics' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><BarChart3 className="w-4 h-4" /><span>Analytics</span></button>
-            <button onClick={() => setActiveTab('archive')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'archive' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Archive className="w-4 h-4" /><span>Archief</span></button>
-            
-            {session?.role === 'Superuser' && (
-              <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg transition-all cursor-pointer ${activeTab === 'settings' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Settings className="w-4 h-4" /><span>Instellingen</span></button>
-            )}
+            <button onClick={() => setActiveTab('dag')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'dag' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><CalendarDays className="w-4 h-4" /><span>Dag</span></button>
+            <button onClick={() => setActiveTab('week')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><CalendarRange className="w-4 h-4" /><span>Week</span></button>
+            <button onClick={() => setActiveTab('archive')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'archive' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Archive className="w-4 h-4" /><span>Archief</span></button>
+            {session?.role === 'Superuser' && <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'settings' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Settings className="w-4 h-4" /><span>Instellingen</span></button>}
           </div>
-
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1.5 pr-3 h-11">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-black text-xs flex items-center justify-center">{session.initials}</div>
-            <div>
-              <p className="text-xs font-bold text-slate-800 leading-none">{session.name}</p>
-              <p className="text-[9px] text-slate-400 font-mono tracking-tight mt-0.5">{session.role}</p>
-            </div>
-            <button onClick={handleLogout} className="p-1 rounded-lg text-slate-400 hover:text-rose-600 ml-1 cursor-pointer" title="Afmelden"><LogOut className="w-4 h-4" /></button>
-          </div>
+          <button onClick={handleLogout} className="p-1 rounded-lg text-slate-400 hover:text-rose-600 ml-1"><LogOut className="w-4 h-4" /></button>
         </div>
       </header>
 
       <main className="flex-1 w-full px-6 py-6">
-        {activeTab === 'dag' ? (
-          <TeamPlanner tasks={tasks} onAddTask={handleAddTaskTrigger} onEditTask={handleEditTaskTrigger} selectedDate={selectedDate} setSelectedDate={setSelectedDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} activeUsers={[]} teamMembers={teamMembersState} />
-        ) : activeTab === 'week' ? (
-          <WeekOverview tasks={tasks} teamMembers={teamMembersState} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onEditTask={handleEditTaskTrigger} onAddTask={handleAddTaskTrigger} />
-        ) : activeTab === 'analytics' ? (
-          <PlannerCanvas tasks={tasks} teamMembers={teamMembersState} />
-        ) : activeTab === 'archive' ? (
-          <ArchiveScreen tasks={tasks} teamMembers={teamMembersState} onEditTask={handleEditTaskTrigger} />
-        ) : activeTab === 'settings' && session?.role === 'Superuser' ? (
-          <TeamSettingsScreen teamMembers={teamMembersState} tasks={tasks} onTriggerNotification={triggerNotification} />
-        ) : (
-          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center max-w-md mx-auto my-12 shadow-sm">
-            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4 font-bold text-xl">⚠️</div>
-            <h3 className="text-lg font-bold text-slate-800 mb-1">Toegang Geweigerd</h3>
-            <p className="text-sm text-slate-500">U heeft geen beheerdersrechten om de instellingen te bekijken.</p>
-          </div>
-        )}
+        {activeTab === 'dag' ? <TeamPlanner tasks={tasks} onAddTask={handleAddTaskTrigger} onEditTask={handleEditTaskTrigger} selectedDate={selectedDate} setSelectedDate={setSelectedDate} searchTerm={searchTerm} setSearchTerm={setSearchTerm} activeUsers={[]} teamMembers={teamMembersState} />
+        : activeTab === 'week' ? <WeekOverview tasks={tasks} teamMembers={teamMembersState} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onEditTask={handleEditTaskTrigger} onAddTask={handleAddTaskTrigger} />
+        : activeTab === 'analytics' ? <PlannerCanvas tasks={tasks} teamMembers={teamMembersState} />
+        : activeTab === 'archive' ? <ArchiveScreen tasks={tasks} teamMembers={teamMembersState} onEditTask={handleEditTaskTrigger} />
+        : session?.role === 'Superuser' ? <TeamSettingsScreen teamMembers={teamMembersState} tasks={tasks} onTriggerNotification={triggerNotification} />
+        : <div className="text-center mt-12">Geen toegang</div>}
       </main>
 
-      {isModalOpen && (
-        <NieuweTaakModal 
-          onClose={() => setIsModalOpen(false)} 
-          onSave={handleSaveTask} 
-          onDelete={handleDeleteTask} 
-          editingTask={editingTask} 
-          defaultDate={selectedDate} 
-          defaultTime={defaultTaskTime}
-          defaultMemberId={defaultTaskMemberId}
-          teamMembers={teamMembersState} 
-          isSuperuser={session?.role === 'Superuser'}
-          currentUserId={session?.memberId || ''}
-          tasks={tasks}
-        />
-      )}
+      {isModalOpen && <NieuweTaakModal onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} onDelete={handleDeleteTask} editingTask={editingTask} defaultDate={selectedDate} defaultTime={defaultTaskTime} defaultMemberId={defaultTaskMemberId} teamMembers={teamMembersState} isSuperuser={session?.role === 'Superuser'} currentUserId={session?.memberId || ''} tasks={tasks} />}
     </div>
   );
 }
