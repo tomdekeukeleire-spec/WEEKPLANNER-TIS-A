@@ -117,7 +117,7 @@ export default function TeamPlanner({
 
           <div className="divide-y divide-slate-100 bg-white">
             {filteredMembers.map(member => {
-              const memberTasks = tasks.filter(t => t.teamMemberId === member.id && t.date === selectedDate);
+              const memberTasks = tasks.filter(t => String(t.teamMemberId) === String(member.id) && t.date === selectedDate);
               const activeCount = memberTasks.filter(t => t.status === 'active').length;
 
               return (
