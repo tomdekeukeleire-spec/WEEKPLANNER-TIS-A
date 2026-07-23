@@ -202,12 +202,14 @@ export default function TeamPlanner({
             
             <div className="col-span-10 grid grid-cols-9 h-12 divide-x divide-slate-100">
               {HOURS.map(h => {
-                const activeTasksInHour = tasks.filter(t => 
-                  t.date === selectedDate &&
-                  t.status === 'active' && 
-                  parseTimeToDecimal(t.startTime) < h + 1 &&
-                  parseTimeToDecimal(t.endTime) > h
-                ).length;
+                const activeTasksInHour = new Set(
+                  tasks.filter(t => 
+                    t.date === selectedDate &&
+                    t.status === 'active' && 
+                    parseTimeToDecimal(t.startTime) < h + 1 &&
+                    parseTimeToDecimal(t.endTime) > h
+                  ).map(t => String(t.teamMemberId)) // Filtert op unieke personen!
+                ).size;
 
                 let badgeColor = 'bg-blue-50 text-blue-600 ring-blue-500/10';
                 if (activeTasksInHour >= 5) badgeColor = 'bg-rose-50 text-rose-600 ring-rose-500/10';
