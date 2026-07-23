@@ -41,10 +41,10 @@ function getISOWeekFromDate(d: Date): number {
 
 function dbToTask(row: any): Task {
   return {
-    id: row.id,
+    id: String(row.id),
     date: row.date,
     week: Number(row.week),
-    teamMemberId: row.assigned_to,
+    teamMemberId: String(row.assigned_to),
     subject: row.subject || undefined,
     description: row.description,
     startTime: row.start_time,
@@ -52,7 +52,6 @@ function dbToTask(row: any): Task {
     priority: row.priority as Priority,
     createdBy: row.created_by || 'User',
     createdAt: Number(row.created_at),
-    // NIEUW: Status in kaart brengen (standaard active)
     status: row.status || 'active'
   };
 }
