@@ -73,8 +73,7 @@ export default function TeamPlanner({
 
         <div className="flex items-center gap-2 bg-blue-50/50 border border-blue-100 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-blue-800">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span>ONLINE PLANNER:</span>
-          <span className="text-slate-400 font-normal italic">Alleen u bent online</span>
+          <span>ONLINE PLANNER</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -89,15 +88,13 @@ export default function TeamPlanner({
       <div className="overflow-x-auto w-full">
         <div className="min-w-[1100px] w-full">
           
-          {/* KOLOM KOPPEN (Aangepast naar Strakke Meetlat) */}
           <div className="grid grid-cols-12 bg-slate-50/70 border-b border-slate-100 text-[11px] font-bold text-slate-400 tracking-wider uppercase select-none">
             <div className="col-span-2 py-3 pl-4 border-r border-slate-100 flex items-center">Teamlid</div>
             <div className="col-span-10 relative h-10">
-              {/* Teken de uren EXACT op de grenslijnen (0% t/m 100% van de 9 uur) */}
               {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17].map(h => {
                 let transformStyle = 'translateX(-50%)';
-                if (h === 8) transformStyle = 'translateX(6px)'; // 08:00 iets naar rechts zodat hij niet buiten het scherm valt
-                if (h === 17) transformStyle = 'translateX(calc(-100% - 6px))'; // 17:00 strak tegen de rechtermur
+                if (h === 8) transformStyle = 'translateX(6px)';
+                if (h === 17) transformStyle = 'translateX(calc(-100% - 6px))';
                 
                 return (
                   <div
@@ -117,13 +114,13 @@ export default function TeamPlanner({
 
           <div className="divide-y divide-slate-100 bg-white">
             {filteredMembers.map(member => {
+              // CRUCIALE FIX: String(...) rondom BEIDE variabelen maakt van '6' === 6 altijd WAAR!
               const memberTasks = tasks.filter(t => String(t.teamMemberId) === String(member.id) && t.date === selectedDate);
               const activeCount = memberTasks.filter(t => t.status === 'active').length;
 
               return (
                 <div key={member.id} className="grid grid-cols-12 items-center group hover:bg-slate-50/30 transition-colors">
                   
-                  {/* LINKER KOLOM */}
                   <div className="col-span-2 py-3 pl-4 pr-2 border-r border-slate-100 flex items-center gap-3 select-none">
                     <div className={`w-9 h-9 rounded-lg text-white font-black text-xs flex items-center justify-center shadow-sm shrink-0 ${member.color || 'bg-blue-600'}`}>
                       {member.initials}
@@ -136,9 +133,7 @@ export default function TeamPlanner({
                     </div>
                   </div>
 
-                  {/* TIMELINE RIJ (Exact 9 blokken voor 9 uren) */}
                   <div className="col-span-10 h-14 relative bg-transparent grid grid-cols-9 divide-x divide-slate-100/70">
-                    
                     {HOURS.map((h) => (
                       <div 
                         key={`cell-${member.id}-${h}`} 
@@ -163,7 +158,6 @@ export default function TeamPlanner({
                       if (task.subject === 'Ziekte') colorClass = 'bg-purple-600 text-white border-purple-700';
 
                       const isCancelled = task.status === 'cancelled';
-                      
                       const finalColorStyle = isCancelled
                         ? 'bg-slate-200 border-slate-400 text-slate-700 opacity-95 line-through'
                         : colorClass;
@@ -195,15 +189,12 @@ export default function TeamPlanner({
                         </div>
                       );
                     })}
-
                   </div>
-
                 </div>
               );
             })}
           </div>
 
-          {/* ONDERSTE BALK: DRUKTEMETERS */}
           <div className="grid grid-cols-12 bg-slate-50 border-t border-b border-slate-100 items-center select-none">
             <div className="col-span-2 py-3 pl-4 text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
               <span>🔒 Totaal Schematisch</span>
@@ -233,25 +224,8 @@ export default function TeamPlanner({
             </div>
           </div>
 
-          <div className="py-3 px-4 bg-slate-50/50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-[10px] font-bold text-slate-400 tracking-wide select-none">
-            <div className="flex items-center gap-3">
-              <span className="uppercase tracking-wider">Kleurwisser:</span>
-              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-600" /><span>Urgent / Verlof</span></div>
-              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500" /><span>Hoog</span></div>
-              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500" /><span>Medium</span></div>
-              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-purple-600" /><span>Ziekte</span></div>
-              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /><span>Laag</span></div>
-              <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300" /><span>Geannuleerd</span></div>
-            </div>
-            <div className="italic text-slate-400 font-normal">
-              💡 Klik op een lege cel voor een nieuwe taak. Weekenddagen worden automatisch overgeslagen.
-            </div>
-          </div>
-
         </div>
       </div>
-
     </div>
   );
 }
-
